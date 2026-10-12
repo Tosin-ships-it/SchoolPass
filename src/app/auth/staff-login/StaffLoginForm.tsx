@@ -6,30 +6,67 @@ import { useRouter } from 'next/navigation';
 import { AuthCard } from '../components/AuthCard';
 import { FormField, PrimaryButton, AlertBox, DevCredentialsHint } from '../components/AuthFormElements';
 
+function isValidEmail(value: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(value.trim());
+}
+
 export function StaffLoginForm() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setEmail(val);
+    if (emailError) {
+      if (isValidEmail(val)) {
+        setEmailError(null);
+      }
+    }
+  };
+
+  const handleEmailBlur = () => {
+    if (email.trim().length > 0 && !isValidEmail(email)) {
+      setEmailError('Enter a valid email address');
+    } else if (isValidEmail(email)) {
+      setEmailError(null);
+    }
+  };
+
+  const isButtonEnabled = email.trim().length > 0 && password.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!isButtonEnabled) {
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setEmailError('Enter a valid email address');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/staff-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Invalid staff credentials.');
+        setError('Invalid email or password.');
         return;
       }
 
@@ -85,7 +122,9 @@ export function StaffLoginForm() {
           required
           placeholder="e.g. staff@school.ng"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          error={emailError || undefined}
+          onChange={handleEmailChange}
+          onBlur={handleEmailBlur}
         />
 
         <FormField
@@ -94,17 +133,59 @@ export function StaffLoginForm() {
           type="password"
           autoComplete="current-password"
           required
+          showPasswordToggle={true}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: '18px',
+          }}
+        >
+          <label
+            htmlFor="staff-remember-me"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              fontFamily: 'var(--typography-body-small-fontfamily)',
+              fontSize: 'var(--typography-body-small-fontsize)',
+              color: 'var(--color-roles-on-surface)',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              id="staff-remember-me"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                accentColor: 'var(--color-roles-secondary)',
+                cursor: 'pointer',
+              }}
+            />
+            <span>Remember me</span>
+          </label>
+        </div>
 
         <div style={{ marginTop: '20px' }}>
           <PrimaryButton
             type="submit"
             loading={loading}
-            style={{
-              backgroundColor: 'var(--color-roles-secondary)',
-            }}
+            disabled={!isButtonEnabled || loading}
+            style={
+              !isButtonEnabled || loading
+                ? undefined
+                : {
+                    backgroundColor: 'var(--color-roles-secondary)',
+                  }
+            }
           >
             Sign In as Staff
           </PrimaryButton>
@@ -116,6 +197,7 @@ export function StaffLoginForm() {
         onSelect={(selectedEmail, selectedPass) => {
           setEmail(selectedEmail);
           setPassword(selectedPass);
+          setEmailError(null);
         }}
       />
     </AuthCard>

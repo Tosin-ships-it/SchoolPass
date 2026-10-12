@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface FormFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   id: string;
   label: string;
   error?: string;
   helperText?: string;
+  showPasswordToggle?: boolean;
 }
 
 export function FormField({
@@ -14,11 +15,67 @@ export function FormField({
   label,
   error,
   helperText,
+  showPasswordToggle,
   style,
+  onBlur,
+  onChange,
+  onFocus,
+  type = 'text',
   ...inputProps
 }: FormFieldProps) {
-  const errorId = error ? `${id}-error` : undefined;
+  const [internalError, setInternalError] = useState<string | null>(null);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (inputProps.value !== undefined && String(inputProps.value).trim().length > 0) {
+      setInternalError(null);
+    }
+  }, [inputProps.value]);
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(false);
+    const val =
+      e.target.value !== undefined
+        ? e.target.value
+        : inputProps.value !== undefined
+        ? String(inputProps.value)
+        : '';
+    if (!val || !String(val).trim()) {
+      setInternalError('This field must not be empty');
+    } else {
+      setInternalError(null);
+    }
+    if (onBlur) {
+      onBlur(e);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.value && String(e.target.value).trim()) {
+      setInternalError(null);
+    }
+    if (onChange) {
+      onChange(e);
+    }
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(true);
+    if (onFocus) {
+      onFocus(e);
+    }
+  };
+
+  const activeError = error || internalError;
+  const errorId = activeError ? `${id}-error` : undefined;
   const helperId = helperText ? `${id}-helper` : undefined;
+
+  const resolvedType = showPasswordToggle
+    ? isPasswordVisible
+      ? 'text'
+      : 'password'
+    : type;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
@@ -34,45 +91,137 @@ export function FormField({
         {label}
       </label>
 
-      <input
-        id={id}
-        aria-invalid={Boolean(error)}
-        aria-describedby={[errorId, helperId].filter(Boolean).join(' ') || undefined}
-        style={{
-          width: '100%',
-          padding: '12px 14px',
-          fontFamily: 'var(--typography-body-large-fontfamily)',
-          fontSize: 'var(--typography-body-large-fontsize)',
-          lineHeight: 'var(--typography-body-large-lineheight)',
-          color: 'var(--color-roles-on-surface)',
-          backgroundColor: 'var(--color-roles-surface)',
-          border: error
-            ? '1.5px solid var(--color-roles-error)'
-            : '1px solid var(--color-roles-outline-color)',
-          boxSizing: 'border-box',
-          outline: 'none',
-          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-          ...style,
-        }}
-        {...inputProps}
-      />
+      <div style={{ position: 'relative', width: '100%' }}>
+        <input
+          id={id}
+          type={resolvedType}
+          aria-invalid={Boolean(activeError)}
+          aria-describedby={[errorId, helperId].filter(Boolean).join(' ') || undefined}
+          style={{
+            width: '100%',
+            height: '42px',
+            padding: showPasswordToggle ? '8px 36px 8px 12px' : '8px 12px',
+            fontFamily: 'var(--typography-body-large-fontfamily)',
+            fontSize: 'var(--typography-body-large-fontsize)',
+            lineHeight: 'var(--typography-body-large-lineheight)',
+            color: 'var(--color-roles-on-surface)',
+            backgroundColor: 'var(--color-roles-surface)',
+            border: activeError
+              ? '0.8px solid var(--color-roles-error)'
+              : isFocused
+              ? '1px solid var(--color-roles-primary)'
+              : '1px solid var(--color-roles-outline-color)',
+            outline: activeError
+              ? 'none'
+              : isFocused
+              ? '1px solid var(--color-roles-primary)'
+              : 'none',
+            borderRadius: '8px',
+            boxSizing: 'border-box',
+            transition: 'border-color 0.15s ease, outline-color 0.15s ease, box-shadow 0.15s ease',
+            ...style,
+          }}
+          {...inputProps}
+          onBlur={handleBlur}
+          onChange={handleChange}
+          onFocus={handleFocus}
+        />
 
-      {error && (
+        {showPasswordToggle && (
+          <button
+            type="button"
+            aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+            onClick={() => setIsPasswordVisible((prev) => !prev)}
+            style={{
+              position: 'absolute',
+              right: '8px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none',
+              border: 'none',
+              padding: '4px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--color-roles-on-surface-variant)',
+              borderRadius: '4px',
+              transition: 'color 0.15s ease',
+            }}
+          >
+            {isPasswordVisible ? (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ flexShrink: 0 }}
+              >
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+            ) : (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ flexShrink: 0 }}
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        )}
+      </div>
+
+      {activeError && (
         <span
           id={errorId}
           role="alert"
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
             fontFamily: 'var(--typography-body-small-fontfamily)',
             fontSize: 'var(--typography-body-small-fontsize)',
             color: 'var(--color-roles-error)',
             marginTop: '2px',
           }}
         >
-          {error}
+          <svg
+            aria-hidden="true"
+            focusable="false"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span>{activeError}</span>
         </span>
       )}
 
-      {helperText && !error && (
+      {helperText && !activeError && (
         <span
           id={helperId}
           style={{
@@ -110,7 +259,10 @@ export function PrimaryButton({
         justifyContent: 'center',
         gap: '8px',
         width: '100%',
-        padding: '12px 20px',
+        height: '42px',
+        boxSizing: 'border-box',
+        borderRadius: '8px',
+        padding: '8px 16px',
         backgroundColor: disabled || loading ? 'var(--color-roles-outline-color)' : 'var(--color-roles-primary)',
         color: disabled || loading ? 'var(--color-roles-on-surface-variant)' : 'var(--color-roles-on-primary)',
         fontFamily: 'var(--typography-label-large-fontfamily)',

@@ -1,5 +1,5 @@
 import 'server-only';
-import { hashPassword } from './crypto';
+import { prisma } from '@/lib/db';
 
 export interface ParentAccount {
   id: string;
@@ -57,332 +57,267 @@ export interface ParentStudentLink {
 export interface RateLimitEntry {
   key: string;
   attempts: number;
-  blockedUntil: number | null;
-}
-
-// In-memory persistent store structure for development
-interface AuthDataStore {
-  parents: Map<string, ParentAccount>;
-  staffUsers: Map<string, StaffAccount>;
-  verificationTokens: Map<string, VerificationTokenRecord>;
-  passwordResetTokens: Map<string, PasswordResetTokenRecord>;
-  sessions: Map<string, SessionRecord>;
-  parentStudentLinks: Map<string, ParentStudentLink>;
-  rateLimits: Map<string, RateLimitEntry>;
-  isSeeded: boolean;
-}
-
-const globalForAuthStore = globalThis as unknown as {
-  __schoolpass_auth_store?: AuthDataStore;
-};
-
-function getStore(): AuthDataStore {
-  if (!globalForAuthStore.__schoolpass_auth_store) {
-    globalForAuthStore.__schoolpass_auth_store = {
-      parents: new Map(),
-      staffUsers: new Map(),
-      verificationTokens: new Map(),
-      passwordResetTokens: new Map(),
-      sessions: new Map(),
-      parentStudentLinks: new Map(),
-      rateLimits: new Map(),
-      isSeeded: false,
-    };
-  }
-  return globalForAuthStore.__schoolpass_auth_store;
+  blockedUntil: Date | null;
 }
 
 /**
- * Initialize default test fixtures for development testing.
+ * Backward compatibility no-op for previous in-memory seed hook.
  */
 export async function ensureSeededStore(): Promise<void> {
-  const store = getStore();
-  if (store.isSeeded) return;
-
-  const parentPasswordHash = await hashPassword('ParentPass2026!');
-  const staffPasswordHash = await hashPassword('StaffPass2026!');
-  const adminPasswordHash = await hashPassword('SchoolAdmin2026!');
-
-  // 1. Linked Parent
-  const linkedParent: ParentAccount = {
-    id: 'parent_cuid_01',
-    name: 'Chinedu Okafor',
-    email: 'parent.linked@example.com',
-    passwordHash: parentPasswordHash,
-    previousPasswordHashes: [parentPasswordHash],
-    emailVerifiedAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.parents.set(linkedParent.email, linkedParent);
-
-  // Link to a student (Amina Okafor)
-  store.parentStudentLinks.set('link_01', {
-    id: 'link_cuid_01',
-    parentId: linkedParent.id,
-    studentId: 'student_cuid_01',
-    studentName: 'Amina Okafor (Primary 4)',
-    createdAt: new Date(),
-  });
-
-  // 2. Unlinked Parent (verified, no child linked yet)
-  const unlinkedParent: ParentAccount = {
-    id: 'parent_cuid_02',
-    name: 'Zainab Balogun',
-    email: 'parent.unlinked@example.com',
-    passwordHash: parentPasswordHash,
-    previousPasswordHashes: [parentPasswordHash],
-    emailVerifiedAt: new Date(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.parents.set(unlinkedParent.email, unlinkedParent);
-
-  // 3. Unverified Parent (signed up, email pending)
-  const unverifiedParent: ParentAccount = {
-    id: 'parent_cuid_03',
-    name: 'Emeka Nwosu',
-    email: 'parent.unverified@example.com',
-    passwordHash: parentPasswordHash,
-    previousPasswordHashes: [parentPasswordHash],
-    emailVerifiedAt: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.parents.set(unverifiedParent.email, unverifiedParent);
-
-  // 4. Staff Member
-  const staffMember: StaffAccount = {
-    id: 'staff_cuid_01',
-    name: 'Grace Adeleke',
-    email: 'staff@school.ng',
-    passwordHash: staffPasswordHash,
-    role: 'STAFF',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.staffUsers.set(staffMember.email, staffMember);
-
-  // 5. School Admin / Owner
-  const schoolAdmin: StaffAccount = {
-    id: 'admin_cuid_01',
-    name: 'Dr. Folake Davies',
-    email: 'admin@school.ng',
-    passwordHash: adminPasswordHash,
-    role: 'ADMIN',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.staffUsers.set(schoolAdmin.email, schoolAdmin);
-
-  store.isSeeded = true;
+  // Persistence is now backed by PostgreSQL Neon branch.
 }
 
+// ==========================================
 // Parent Repository
+// ==========================================
+
 export async function findParentByEmail(email: string): Promise<ParentAccount | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  return store.parents.get(email.toLowerCase().trim()) ?? null;
+  const parent = await prisma.parent.findUnique({
+    where: { email: email.toLowerCase().trim() },
+  });
+  return parent;
 }
 
 export async function findParentById(id: string): Promise<ParentAccount | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  for (const parent of store.parents.values()) {
-    if (parent.id === id) return parent;
-  }
-  return null;
+  const parent = await prisma.parent.findUnique({
+    where: { id },
+  });
+  return parent;
 }
 
 export async function createParent(account: Omit<ParentAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<ParentAccount> {
-  await ensureSeededStore();
-  const store = getStore();
-  const newId = `parent_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const parent: ParentAccount = {
-    ...account,
-    id: newId,
-    email: account.email.toLowerCase().trim(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  store.parents.set(parent.email, parent);
+  const parent = await prisma.parent.create({
+    data: {
+      name: account.name,
+      email: account.email.toLowerCase().trim(),
+      passwordHash: account.passwordHash,
+      previousPasswordHashes: account.previousPasswordHashes ?? [],
+      emailVerifiedAt: account.emailVerifiedAt,
+    },
+  });
   return parent;
 }
 
 export async function updateParent(id: string, updates: Partial<ParentAccount>): Promise<ParentAccount | null> {
-  await ensureSeededStore();
-  const parent = await findParentById(id);
-  if (!parent) return null;
-
-  const store = getStore();
-  const updated: ParentAccount = {
-    ...parent,
-    ...updates,
-    updatedAt: new Date(),
-  };
-  store.parents.set(updated.email, updated);
-  return updated;
+  try {
+    const parent = await prisma.parent.update({
+      where: { id },
+      data: {
+        ...(updates.name !== undefined && { name: updates.name }),
+        ...(updates.email !== undefined && { email: updates.email.toLowerCase().trim() }),
+        ...(updates.passwordHash !== undefined && { passwordHash: updates.passwordHash }),
+        ...(updates.previousPasswordHashes !== undefined && { previousPasswordHashes: updates.previousPasswordHashes }),
+        ...(updates.emailVerifiedAt !== undefined && { emailVerifiedAt: updates.emailVerifiedAt }),
+      },
+    });
+    return parent;
+  } catch {
+    return null;
+  }
 }
 
+// ==========================================
 // Staff Repository
+// ==========================================
+
 export async function findStaffByEmail(email: string): Promise<StaffAccount | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  return store.staffUsers.get(email.toLowerCase().trim()) ?? null;
+  const staff = await prisma.staffUser.findUnique({
+    where: { email: email.toLowerCase().trim() },
+  });
+  return staff;
 }
 
 export async function findStaffById(id: string): Promise<StaffAccount | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  for (const staff of store.staffUsers.values()) {
-    if (staff.id === id) return staff;
-  }
-  return null;
+  const staff = await prisma.staffUser.findUnique({
+    where: { id },
+  });
+  return staff;
 }
 
+// ==========================================
 // Verification Tokens
+// ==========================================
+
 export async function saveVerificationToken(email: string, tokenHash: string, expiresAt: Date): Promise<VerificationTokenRecord> {
-  await ensureSeededStore();
-  const store = getStore();
-  const record: VerificationTokenRecord = {
-    id: `vt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    email: email.toLowerCase().trim(),
-    tokenHash,
-    expiresAt,
-    createdAt: new Date(),
-  };
-  store.verificationTokens.set(tokenHash, record);
+  // Delete any existing token for this email to prevent duplicate pending verification links
+  await prisma.verificationToken.deleteMany({
+    where: { email: email.toLowerCase().trim() },
+  });
+
+  const record = await prisma.verificationToken.create({
+    data: {
+      email: email.toLowerCase().trim(),
+      tokenHash,
+      expiresAt,
+    },
+  });
   return record;
 }
 
 export async function findVerificationTokenByHash(tokenHash: string): Promise<VerificationTokenRecord | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  return store.verificationTokens.get(tokenHash) ?? null;
+  const record = await prisma.verificationToken.findUnique({
+    where: { tokenHash },
+  });
+  return record;
 }
 
 export async function deleteVerificationToken(tokenHash: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  store.verificationTokens.delete(tokenHash);
+  await prisma.verificationToken.deleteMany({
+    where: { tokenHash },
+  });
 }
 
+// ==========================================
 // Password Reset Tokens
+// ==========================================
+
 export async function savePasswordResetToken(email: string, tokenHash: string, expiresAt: Date): Promise<PasswordResetTokenRecord> {
-  await ensureSeededStore();
-  const store = getStore();
-  const record: PasswordResetTokenRecord = {
-    id: `prt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    email: email.toLowerCase().trim(),
-    tokenHash,
-    expiresAt,
-    createdAt: new Date(),
-  };
-  store.passwordResetTokens.set(tokenHash, record);
+  // Delete any existing token for this email to ensure only the latest reset link is valid
+  await prisma.passwordResetToken.deleteMany({
+    where: { email: email.toLowerCase().trim() },
+  });
+
+  const record = await prisma.passwordResetToken.create({
+    data: {
+      email: email.toLowerCase().trim(),
+      tokenHash,
+      expiresAt,
+    },
+  });
   return record;
 }
 
 export async function findPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetTokenRecord | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  return store.passwordResetTokens.get(tokenHash) ?? null;
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+  return record;
 }
 
 export async function deletePasswordResetToken(tokenHash: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  store.passwordResetTokens.delete(tokenHash);
+  await prisma.passwordResetToken.deleteMany({
+    where: { tokenHash },
+  });
 }
 
+// ==========================================
 // Sessions
+// ==========================================
+
 export async function createSessionRecord(userId: string, role: 'parent' | 'staff' | 'admin', expiresAt: Date): Promise<SessionRecord> {
-  await ensureSeededStore();
-  const store = getStore();
-  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  const session: SessionRecord = {
-    id: sessionId,
-    userId,
-    role,
-    createdAt: new Date(),
-    expiresAt,
+  const session = await prisma.session.create({
+    data: {
+      userId,
+      role,
+      expiresAt,
+    },
+  });
+  return {
+    id: session.id,
+    userId: session.userId,
+    role: session.role as 'parent' | 'staff' | 'admin',
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
   };
-  store.sessions.set(sessionId, session);
-  return session;
 }
 
 export async function findSessionRecord(sessionId: string): Promise<SessionRecord | null> {
-  await ensureSeededStore();
-  const store = getStore();
-  const session = store.sessions.get(sessionId);
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+  });
   if (!session) return null;
+
   if (session.expiresAt.getTime() < Date.now()) {
-    store.sessions.delete(sessionId);
+    await prisma.session.delete({ where: { id: sessionId } }).catch(() => {});
     return null;
   }
-  return session;
+
+  return {
+    id: session.id,
+    userId: session.userId,
+    role: session.role as 'parent' | 'staff' | 'admin',
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+  };
 }
 
 export async function deleteSessionRecord(sessionId: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  store.sessions.delete(sessionId);
+  await prisma.session.deleteMany({
+    where: { id: sessionId },
+  });
 }
 
 export async function deleteAllUserSessions(userId: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  for (const [id, session] of store.sessions.entries()) {
-    if (session.userId === userId) {
-      store.sessions.delete(id);
-    }
-  }
+  await prisma.session.deleteMany({
+    where: { userId },
+  });
 }
 
+// ==========================================
 // Parent-Student Links
+// ==========================================
+
 export async function getParentStudentLinks(parentId: string): Promise<ParentStudentLink[]> {
-  await ensureSeededStore();
-  const store = getStore();
-  const links: ParentStudentLink[] = [];
-  for (const link of store.parentStudentLinks.values()) {
-    if (link.parentId === parentId) {
-      links.push(link);
-    }
-  }
-  return links;
+  const links = await prisma.parentStudent.findMany({
+    where: { parentId },
+    include: { student: true },
+  });
+
+  return links
+    .filter(link => link.student.leftAt === null) // Addendum §9.6: Leavers excluded from active parent access
+    .map(link => ({
+      id: link.id,
+      parentId: link.parentId,
+      studentId: link.studentId,
+      studentName: link.student.name,
+      createdAt: link.createdAt,
+    }));
 }
 
 export async function isParentLinkedToStudent(parentId: string, studentId: string): Promise<boolean> {
-  await ensureSeededStore();
-  const store = getStore();
-  for (const link of store.parentStudentLinks.values()) {
-    if (link.parentId === parentId && link.studentId === studentId) {
-      return true;
-    }
-  }
-  return false;
+  const link = await prisma.parentStudent.findUnique({
+    where: {
+      parentId_studentId: {
+        parentId,
+        studentId,
+      },
+    },
+    include: {
+      student: true,
+    },
+  });
+
+  if (!link) return false;
+  // Addendum §9.6: Leaver marker — non-null leftAt blocks parent access
+  if (link.student.leftAt !== null) return false;
+
+  return true;
 }
 
+// ==========================================
 // Rate Limiting
+// ==========================================
+
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
 
 export async function checkRateLimit(key: string): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
-  await ensureSeededStore();
-  const store = getStore();
-  const now = Date.now();
-  const entry = store.rateLimits.get(key);
+  const now = new Date();
+  const entry = await prisma.rateLimit.findUnique({
+    where: { key },
+  });
 
   if (!entry) {
     return { allowed: true };
   }
 
-  if (entry.blockedUntil && entry.blockedUntil > now) {
-    const remainingSec = Math.ceil((entry.blockedUntil - now) / 1000);
+  if (entry.blockedUntil && entry.blockedUntil.getTime() > now.getTime()) {
+    const remainingSec = Math.ceil((entry.blockedUntil.getTime() - now.getTime()) / 1000);
     return { allowed: false, retryAfterSeconds: remainingSec };
   }
 
-  if (entry.blockedUntil && entry.blockedUntil <= now) {
-    store.rateLimits.delete(key);
+  if (entry.blockedUntil && entry.blockedUntil.getTime() <= now.getTime()) {
+    await prisma.rateLimit.delete({ where: { key } }).catch(() => {});
     return { allowed: true };
   }
 
@@ -390,20 +325,30 @@ export async function checkRateLimit(key: string): Promise<{ allowed: boolean; r
 }
 
 export async function recordFailedAttempt(key: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  const now = Date.now();
-  const entry = store.rateLimits.get(key) ?? { key, attempts: 0, blockedUntil: null };
+  const now = new Date();
+  const entry = await prisma.rateLimit.findUnique({
+    where: { key },
+  });
 
-  entry.attempts += 1;
-  if (entry.attempts >= MAX_FAILED_ATTEMPTS) {
-    entry.blockedUntil = now + LOCKOUT_DURATION_MS;
-  }
-  store.rateLimits.set(key, entry);
+  const attempts = (entry?.attempts ?? 0) + 1;
+  const blockedUntil = attempts >= MAX_FAILED_ATTEMPTS ? new Date(now.getTime() + LOCKOUT_DURATION_MS) : null;
+
+  await prisma.rateLimit.upsert({
+    where: { key },
+    create: {
+      key,
+      attempts,
+      blockedUntil,
+    },
+    update: {
+      attempts,
+      blockedUntil,
+    },
+  });
 }
 
 export async function resetRateLimit(key: string): Promise<void> {
-  await ensureSeededStore();
-  const store = getStore();
-  store.rateLimits.delete(key);
+  await prisma.rateLimit.deleteMany({
+    where: { key },
+  });
 }

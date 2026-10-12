@@ -61,3 +61,99 @@ Reason: soft deletes change every query. They are a product decision.
 ## Rule 10. Change control
 Every schema change is written here in the same change that uses it.
 Reason: if this file drifts from the schema, the agent will invent.
+
+---
+
+## Stage 1 Approved Schema Definitions: Identity & Authentication
+
+### Enum: `StaffRole`
+- Values: `STAFF`, `ADMIN`.
+
+### Model: `Parent`
+- **Purpose**: Authenticated parent/guardian account. Self-registered with email verification.
+- **Fields**:
+  - `id`: `String` `@id @default(cuid())`
+  - `name`: `String`
+  - `email`: `String @unique`
+  - `passwordHash`: `String`
+  - `previousPasswordHashes`: `String[]` (Enforces 3-password reuse prevention rule)
+  - `emailVerifiedAt`: `DateTime?`
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `sessions Session[]`, `students ParentStudent[]`, `aiUsageDaily AiUsageDaily[]`
+- **Table mapping**: `@@map("parents")`
+
+### Model: `StaffUser`
+- **Purpose**: Staff and Admin user accounts for the Staff & Admin Interface.
+- **Fields**:
+  - `id`: `String` `@id @default(cuid())`
+  - `name`: `String`
+  - `email`: `String @unique`
+  - `passwordHash`: `String`
+  - `role`: `StaffRole @default(STAFF)`
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `sessions Session[]`, `feeEntries FeeEntry[]`, `attendanceRecords AttendanceRecord[]`
+- **Table mapping**: `@@map("staff_users")`
+
+### Model: `Session`
+- **Purpose**: Persistent authentication session tokens stored in httpOnly cookies.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `userId`: `String`
+  - `role`: `String` (`parent`, `staff`, or `admin`)
+  - `expiresAt`: `DateTime`
+  - `createdAt`: `DateTime @default(now())`
+  - Relations: optional `parent Parent? @relation(...)`, optional `staffUser StaffUser? @relation(...)`
+- **Indices**: `@@index([userId])`, `@@map("sessions")`
+
+### Model: `VerificationToken`
+- **Purpose**: Single-use token hash for email verification before first login.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `email`: `String`
+  - `tokenHash`: `String @unique`
+  - `expiresAt`: `DateTime`
+  - `createdAt`: `DateTime @default(now())`
+- **Indices**: `@@index([email])`, `@@map("verification_tokens")`
+
+### Model: `PasswordResetToken`
+- **Purpose**: Single-use token hash for email-based password reset links.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `email`: `String`
+  - `tokenHash`: `String @unique`
+  - `expiresAt`: `DateTime`
+  - `createdAt`: `DateTime @default(now())`
+- **Indices**: `@@index([email])`, `@@map("password_reset_tokens")`
+
+### Model: `Student`
+- **Purpose**: Core student record.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `name`: `String`
+  - `className`: `String`
+  - `leftAt`: `DateTime?` (Addendum 9.6: leaver timestamp. If non-null, parent access terminates immediately)
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `guardians ParentStudent[]`, `attendanceRecords AttendanceRecord[]`, `arrivalConfirmations ArrivalConfirmation[]`, `feeEntries FeeEntry[]`, `payments Payment[]`
+- **Table mapping**: `@@map("students")`
+
+### Model: `ParentStudent`
+- **Purpose**: Many-to-many relationship linking verified parents to students. Created strictly by Staff/Admin.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `parentId`: `String`
+  - `studentId`: `String`
+  - `createdAt`: `DateTime @default(now())`
+  - Relations: `parent Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)`, `student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)`
+- **Constraints**: `@@unique([parentId, studentId])`, `@@index([studentId])`, `@@map("parent_students")`
+
+### Model: `RateLimit`
+- **Purpose**: Persistent authentication brute-force protection per account key and IP.
+- **Fields**:
+  - `key`: `String @id`
+  - `attempts`: `Int @default(0)`
+  - `blockedUntil`: `DateTime?`
+  - `updatedAt`: `DateTime @updatedAt`
+- **Table mapping**: `@@map("rate_limits")`

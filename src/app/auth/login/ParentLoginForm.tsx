@@ -6,35 +6,80 @@ import { useRouter } from 'next/navigation';
 import { AuthCard } from '../components/AuthCard';
 import { FormField, PrimaryButton, AlertBox, DevCredentialsHint } from '../components/AuthFormElements';
 
+function isValidEmail(value: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(value.trim());
+}
+
 export function ParentLoginForm() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [resendStatus, setResendStatus] = useState<string | null>(null);
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setEmail(val);
+    if (emailError) {
+      if (isValidEmail(val)) {
+        setEmailError(null);
+      }
+    }
+  };
+
+  const handleEmailBlur = () => {
+    if (email.trim().length > 0 && !isValidEmail(email)) {
+      setEmailError('Enter a valid email address');
+    } else if (isValidEmail(email)) {
+      setEmailError(null);
+    }
+  };
+
+  const isButtonEnabled = email.trim().length > 0 && password.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setErrorCode(null);
     setResendStatus(null);
+
+    if (!isButtonEnabled) {
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setEmailError('Enter a valid email address');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Failed to sign in. Please try again.');
-        setErrorCode(data.errorCode || null);
+        if (data.errorCode === 'EMAIL_NOT_VERIFIED') {
+          setError(data.error);
+          setErrorCode('EMAIL_NOT_VERIFIED');
+        } else if (data.errorCode === 'RATE_LIMITED') {
+          setError(data.error);
+          setErrorCode('RATE_LIMITED');
+        } else {
+          setError('Invalid email or password.');
+          setErrorCode(null);
+        }
         return;
       }
 
@@ -161,7 +206,9 @@ export function ParentLoginForm() {
           required
           placeholder="e.g. parent@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          error={emailError || undefined}
+          onChange={handleEmailChange}
+          onBlur={handleEmailBlur}
         />
 
         <FormField
@@ -170,6 +217,7 @@ export function ParentLoginForm() {
           type="password"
           autoComplete="current-password"
           required
+          showPasswordToggle={true}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -177,10 +225,41 @@ export function ParentLoginForm() {
         <div
           style={{
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px',
             marginBottom: '18px',
           }}
         >
+          <label
+            htmlFor="remember-me"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              fontFamily: 'var(--typography-body-small-fontfamily)',
+              fontSize: 'var(--typography-body-small-fontsize)',
+              color: 'var(--color-roles-on-surface)',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              id="remember-me"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                accentColor: 'var(--color-roles-primary)',
+                cursor: 'pointer',
+              }}
+            />
+            <span>Remember me</span>
+          </label>
+
           <Link
             href="/auth/forgot-password"
             style={{
@@ -194,7 +273,7 @@ export function ParentLoginForm() {
           </Link>
         </div>
 
-        <PrimaryButton type="submit" loading={loading}>
+        <PrimaryButton type="submit" loading={loading} disabled={!isButtonEnabled || loading}>
           Sign in
         </PrimaryButton>
       </form>
@@ -204,6 +283,7 @@ export function ParentLoginForm() {
         onSelect={(selectedEmail, selectedPass) => {
           setEmail(selectedEmail);
           setPassword(selectedPass);
+          setEmailError(null);
         }}
       />
     </AuthCard>
