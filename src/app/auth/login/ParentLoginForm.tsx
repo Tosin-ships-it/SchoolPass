@@ -50,11 +50,17 @@ export function ParentLoginForm() {
     setResendStatus(null);
 
     if (!isButtonEnabled) {
+      if (!email.trim()) {
+        document.getElementById('email')?.focus();
+      } else if (!password) {
+        document.getElementById('password')?.focus();
+      }
       return;
     }
 
     if (!isValidEmail(email)) {
       setEmailError('Enter a valid email address');
+      document.getElementById('email')?.focus();
       return;
     }
 
@@ -80,6 +86,9 @@ export function ParentLoginForm() {
           setError('Invalid email or password.');
           setErrorCode(null);
         }
+        setTimeout(() => {
+          document.getElementById('parent-login-error')?.focus();
+        }, 50);
         return;
       }
 
@@ -89,6 +98,9 @@ export function ParentLoginForm() {
       router.refresh();
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('parent-login-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -97,6 +109,7 @@ export function ParentLoginForm() {
   const handleResendVerification = async () => {
     if (!email) {
       setError('Please enter your email address to resend verification.');
+      document.getElementById('email')?.focus();
       return;
     }
     try {
@@ -113,6 +126,9 @@ export function ParentLoginForm() {
       }
     } catch {
       setError('Failed to resend verification email.');
+      setTimeout(() => {
+        document.getElementById('parent-login-error')?.focus();
+      }, 50);
     }
   };
 
@@ -167,7 +183,7 @@ export function ParentLoginForm() {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="parent-login-error" type="error" message={error} />}
 
         {errorCode === 'EMAIL_NOT_VERIFIED' && (
           <div style={{ marginBottom: '16px' }}>
@@ -186,6 +202,8 @@ export function ParentLoginForm() {
             </button>
             {resendStatus && (
               <p
+                role="status"
+                aria-live="polite"
                 style={{
                   marginTop: '6px',
                   fontSize: 'var(--typography-body-small-fontsize)',

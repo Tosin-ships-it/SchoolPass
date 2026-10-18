@@ -39,6 +39,19 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
     setError(null);
     setErrorCode(null);
     setResendStatus(null);
+
+    if (!email.trim()) {
+      setError('Please enter your email address.');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter your password.');
+      document.getElementById('password')?.focus();
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -55,6 +68,9 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
         if (data.code === 'EMAIL_NOT_VERIFIED') {
           setErrorCode('EMAIL_NOT_VERIFIED');
         }
+        setTimeout(() => {
+          document.getElementById('parent-login-error')?.focus();
+        }, 50);
         return;
       }
 
@@ -62,6 +78,9 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
       router.refresh();
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('parent-login-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -70,6 +89,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
   const handleResendVerification = async () => {
     if (!email) {
       setError('Please enter your email address to resend verification.');
+      document.getElementById('email')?.focus();
       return;
     }
     setResendStatus('Resending verification email...');
@@ -155,7 +175,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="parent-login-error" type="error" message={error} />}
 
         {errorCode === 'EMAIL_NOT_VERIFIED' && (
           <div style={{ marginBottom: '16px' }}>
@@ -177,6 +197,8 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
             </button>
             {resendStatus && (
               <p
+                role="status"
+                aria-live="polite"
                 style={{
                   fontSize: 'var(--typography-body-small-fontsize)',
                   color: 'var(--color-roles-primary)',
@@ -206,6 +228,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
           type="password"
           autoComplete="current-password"
           required
+          showPasswordToggle={true}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -243,6 +266,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
 function ParentRegisterView({ onSwitchView }: ViewProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [studentNumber, setStudentNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -251,17 +275,54 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
   const [registeredToken, setRegisteredToken] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const [linkStatus, setLinkStatus] = useState<{
+    success: boolean;
+    error?: string;
+    studentName?: string;
+    className?: string;
+    requestId?: string;
+  } | null>(null);
+  const [retryStudentNumber, setRetryStudentNumber] = useState('');
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      document.getElementById('name')?.focus();
+      return;
+    }
+
+    if (!email.trim()) {
+      setError('Please enter your email address.');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
+    if (!studentNumber.trim()) {
+      setError("Please enter your child's student number.");
+      document.getElementById('studentNumber')?.focus();
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter a password.');
+      document.getElementById('password')?.focus();
       return;
     }
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters long.');
+      document.getElementById('password')?.focus();
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      document.getElementById('confirmPassword')?.focus();
       return;
     }
 
@@ -271,13 +332,21 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email,
+          password,
+          studentNumber: studentNumber.trim().toUpperCase(),
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.error || 'Registration failed. Please check your details.');
+        setTimeout(() => {
+          document.getElementById('parent-register-error')?.focus();
+        }, 50);
         return;
       }
 
@@ -285,10 +354,63 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
       if (data.verificationToken) {
         setRegisteredToken(data.verificationToken);
       }
+      if (data.studentLink) {
+        setLinkStatus(data.studentLink);
+      } else {
+        setLinkStatus({ success: false, error: 'No link request was created.' });
+      }
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('parent-register-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetryLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRetryError(null);
+    const trimmed = retryStudentNumber.trim().toUpperCase();
+    if (!trimmed) {
+      setRetryError('Please enter a valid student number.');
+      document.getElementById('auth-retry-student-number')?.focus();
+      return;
+    }
+
+    setRetryLoading(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          token: registeredToken,
+          studentNumber: trimmed,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRetryError(data.error || 'Failed to submit student link request.');
+        document.getElementById('auth-retry-student-number')?.focus();
+      } else {
+        setStudentNumber(trimmed);
+        setLinkStatus({
+          success: true,
+          studentName: data.studentName,
+          className: data.className,
+          requestId: data.requestId,
+        });
+        setRetryError(null);
+        setRetryStudentNumber('');
+      }
+    } catch {
+      setRetryError('Something went wrong. Please check your connection and try again.');
+      document.getElementById('auth-retry-student-number')?.focus();
+    } finally {
+      setRetryLoading(false);
     }
   };
 
@@ -306,16 +428,179 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
             message={`A verification link has been sent to ${email}. Please check your inbox and verify your email before signing in.`}
           />
 
-          <p
-            style={{
-              fontFamily: 'var(--typography-body-medium-fontfamily)',
-              fontSize: 'var(--typography-body-medium-fontsize)',
-              color: 'var(--color-roles-on-surface-variant)',
-              lineHeight: 'var(--typography-body-medium-lineheight)',
-            }}
-          >
-            Once verified, you will be able to sign in immediately. The school staff will then link your account to your child or children.
-          </p>
+          {/* Student Linking Status & Pending Notice */}
+          {linkStatus?.success ? (
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-surface)',
+                border: '1px solid var(--color-roles-outline-color)',
+                borderRadius: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span
+                  style={{
+                    fontFamily: 'var(--typography-title-small-fontfamily)',
+                    fontSize: 'var(--typography-title-small-fontsize)',
+                    fontWeight: 700,
+                    color: 'var(--color-roles-on-surface)',
+                  }}
+                >
+                  Student Linking Request Submitted
+                </span>
+                <span
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(237, 108, 2, 0.12)',
+                    color: '#c25700',
+                    border: '1px solid rgba(237, 108, 2, 0.3)',
+                  }}
+                >
+                  Pending Staff Approval
+                </span>
+              </div>
+
+              <div
+                style={{
+                  padding: '10px 14px',
+                  backgroundColor: 'var(--color-roles-surface-variant)',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  color: 'var(--color-roles-on-surface)',
+                }}
+              >
+                <div><strong>Student:</strong> {linkStatus.studentName || 'Student'}</div>
+                <div><strong>Student Number:</strong> {studentNumber}</div>
+                {linkStatus.className && <div><strong>Class:</strong> {linkStatus.className}</div>}
+              </div>
+
+              <p
+                style={{
+                  fontFamily: 'var(--typography-body-small-fontfamily)',
+                  fontSize: 'var(--typography-body-small-fontsize)',
+                  color: 'var(--color-roles-on-surface-variant)',
+                  lineHeight: 'var(--typography-body-small-lineheight)',
+                  margin: 0,
+                }}
+              >
+                Your request has been submitted to school administrators. Access to your child&apos;s records is strictly restricted until staff review and approve this link.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-surface)',
+                border: '1px solid var(--color-roles-outline-color)',
+                borderRadius: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: 'var(--typography-title-small-fontfamily)',
+                  fontSize: 'var(--typography-title-small-fontsize)',
+                  fontWeight: 700,
+                  color: 'var(--color-roles-error)',
+                }}
+              >
+                Student Linking Incomplete
+              </div>
+
+              <AlertBox
+                type="error"
+                message={linkStatus?.error || 'Student not found with this student number. Please check and try again.'}
+              />
+
+              <p
+                style={{
+                  fontFamily: 'var(--typography-body-small-fontfamily)',
+                  fontSize: 'var(--typography-body-small-fontsize)',
+                  color: 'var(--color-roles-on-surface-variant)',
+                  lineHeight: 'var(--typography-body-small-lineheight)',
+                  margin: 0,
+                }}
+              >
+                Your parent account is registered. You do <strong>not</strong> need to create another account. Retry linking your child below:
+              </p>
+
+              {retryError && (
+                <div id="auth-retry-student-error">
+                  <AlertBox type="error" message={retryError} />
+                </div>
+              )}
+
+              <form onSubmit={handleRetryLink} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} noValidate>
+                <div>
+                  <label
+                    htmlFor="auth-retry-student-number"
+                    style={{
+                      display: 'block',
+                      fontFamily: 'var(--typography-label-medium-fontfamily)',
+                      fontSize: 'var(--typography-label-medium-fontsize)',
+                      fontWeight: 600,
+                      color: 'var(--color-roles-on-surface)',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    Student Number{' '}
+                    <span aria-hidden="true" style={{ color: 'var(--color-roles-error)', fontWeight: 'bold' }}>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    id="auth-retry-student-number"
+                    type="text"
+                    placeholder="Enter correct Student No (e.g. SP-2026-0001)"
+                    value={retryStudentNumber}
+                    onChange={(e) => setRetryStudentNumber(e.target.value.toUpperCase())}
+                    autoCapitalize="characters"
+                    required
+                    aria-invalid={Boolean(retryError)}
+                    aria-describedby={retryError ? 'auth-retry-student-error' : undefined}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '6px',
+                      border: retryError
+                        ? '1px solid var(--color-roles-error)'
+                        : '1px solid var(--color-roles-outline-color)',
+                      backgroundColor: 'var(--color-roles-background)',
+                      color: 'var(--color-roles-on-surface)',
+                      fontSize: 'var(--typography-body-medium-fontsize)',
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={retryLoading || !retryStudentNumber.trim()}
+                  aria-busy={retryLoading ? 'true' : undefined}
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: 'var(--color-roles-primary)',
+                    color: 'var(--color-roles-on-primary)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: 'var(--typography-label-medium-fontsize)',
+                    fontWeight: 700,
+                    cursor: retryLoading ? 'not-allowed' : 'pointer',
+                    opacity: retryLoading || !retryStudentNumber.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {retryLoading ? 'Submitting Request...' : 'Submit Student Linking Request'}
+                </button>
+              </form>
+            </div>
+          )}
 
           {registeredToken && (
             <div
@@ -421,7 +706,7 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="parent-register-error" type="error" message={error} />}
 
         <FormField
           id="name"
@@ -446,11 +731,23 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
         />
 
         <FormField
+          id="studentNumber"
+          label="Child's Student Number"
+          type="text"
+          required
+          placeholder="e.g. SP-2026-0001"
+          helperText="Found on your child's admission letter or student ID card."
+          value={studentNumber}
+          onChange={(e) => setStudentNumber(e.target.value.toUpperCase())}
+        />
+
+        <FormField
           id="password"
           label="Password"
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           helperText="Minimum 8 characters."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -462,6 +759,7 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
         />
@@ -492,6 +790,19 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim()) {
+      setError('Please enter your staff email.');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter your password.');
+      document.getElementById('password')?.focus();
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -505,6 +816,9 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
 
       if (!res.ok) {
         setError(data.error || 'Invalid staff credentials.');
+        setTimeout(() => {
+          document.getElementById('staff-login-error')?.focus();
+        }, 50);
         return;
       }
 
@@ -512,6 +826,9 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
       router.refresh();
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('staff-login-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -555,7 +872,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="staff-login-error" type="error" message={error} />}
 
         <FormField
           id="email"
@@ -574,6 +891,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
           type="password"
           autoComplete="current-password"
           required
+          showPasswordToggle={true}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -603,13 +921,20 @@ function ForgotPasswordView({ onSwitchView }: ViewProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim()) {
+      setError('Please enter your account email.');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim() }),
       });
 
       const data = await res.json();
@@ -620,6 +945,9 @@ function ForgotPasswordView({ onSwitchView }: ViewProps) {
       }
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('forgot-password-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -745,7 +1073,7 @@ function ForgotPasswordView({ onSwitchView }: ViewProps) {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="forgot-password-error" type="error" message={error} />}
 
         <FormField
           id="email"
@@ -785,16 +1113,25 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
 
     if (!token.trim()) {
       setError('Password reset token is missing.');
+      document.getElementById('token')?.focus();
       return;
     }
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+    if (!password) {
+      setError('Please enter a new password.');
+      document.getElementById('password')?.focus();
       return;
     }
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters long.');
+      document.getElementById('password')?.focus();
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      document.getElementById('confirmPassword')?.focus();
       return;
     }
 
@@ -811,12 +1148,18 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
 
       if (!res.ok) {
         setError(data.error || 'Failed to reset password. The link may have expired.');
+        setTimeout(() => {
+          document.getElementById('reset-password-error')?.focus();
+        }, 50);
         return;
       }
 
       setSuccess(true);
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('reset-password-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -887,12 +1230,13 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="reset-password-error" type="error" message={error} />}
 
         <FormField
           id="token"
           label="Reset Token"
           type="text"
+          autoComplete="one-time-code"
           required
           placeholder="Paste token if not pre-filled"
           value={token}
@@ -905,6 +1249,7 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           helperText="Minimum 8 characters. Cannot be one of your last 3 passwords."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -916,6 +1261,7 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
         />
@@ -948,19 +1294,25 @@ function VerifyEmailView({ onSwitchView, initialToken }: ViewProps) {
       const res = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: tokenToVerify }),
+        body: JSON.stringify({ token: tokenToVerify.trim() }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.error || 'Verification failed. The link may have expired.');
+        setTimeout(() => {
+          document.getElementById('verify-email-error')?.focus();
+        }, 50);
         return;
       }
 
       setSuccess(true);
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('verify-email-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -1057,12 +1409,13 @@ function VerifyEmailView({ onSwitchView, initialToken }: ViewProps) {
         }}
         noValidate
       >
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="verify-email-error" type="error" message={error} />}
 
         <FormField
           id="token"
           label="Verification Code / Token"
           type="text"
+          autoComplete="one-time-code"
           required
           placeholder="Paste verification token"
           value={token}

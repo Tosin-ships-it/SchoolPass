@@ -51,7 +51,29 @@ export interface ParentStudentLink {
   parentId: string;
   studentId: string;
   studentName: string;
+  studentNumber?: string;
+  className?: string;
   createdAt: Date;
+}
+
+export type LinkRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface StudentLinkRequestRecord {
+  id: string;
+  parentId: string;
+  parentName?: string;
+  parentEmail?: string;
+  studentId: string;
+  studentNumber: string;
+  studentName: string;
+  studentClass: string;
+  status: LinkRequestStatus;
+  reviewedByStaffId: string | null;
+  reviewerName?: string | null;
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface RateLimitEntry {
@@ -133,6 +155,19 @@ export async function findStaffById(id: string): Promise<StaffAccount | null> {
   });
   return staff;
 }
+
+export async function updateStaffPassword(id: string, passwordHash: string): Promise<StaffAccount | null> {
+  try {
+    const staff = await prisma.staffUser.update({
+      where: { id },
+      data: { passwordHash },
+    });
+    return staff;
+  } catch {
+    return null;
+  }
+}
+
 
 // ==========================================
 // Verification Tokens
@@ -270,6 +305,8 @@ export async function getParentStudentLinks(parentId: string): Promise<ParentStu
       parentId: link.parentId,
       studentId: link.studentId,
       studentName: link.student.name,
+      studentNumber: link.student.studentNumber,
+      className: link.student.className,
       createdAt: link.createdAt,
     }));
 }
@@ -292,6 +329,304 @@ export async function isParentLinkedToStudent(parentId: string, studentId: strin
   if (link.student.leftAt !== null) return false;
 
   return true;
+}
+
+export async function findStudentByNumber(studentNumber: string) {
+  const normalized = studentNumber.trim().toUpperCase();
+  return prisma.student.findUnique({
+    where: { studentNumber: normalized },
+  });
+}
+
+export async function findStudentById(studentId: string) {
+  return prisma.student.findUnique({
+    where: { id: studentId },
+  });
+}
+
+export async function createStudentLinkRequest(
+  parentId: string,
+  studentNumber: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  requestId?: string;
+  studentId?: string;
+  studentName?: string;
+  className?: string;
+}> {
+  const normalizedNumber = studentNumber.trim().toUpperCase();
+  if (!normalizedNumber) {
+    return { success: false, error: 'Please enter a student number.' };
+  }
+
+  const student = await findStudentByNumber(normalizedNumber);
+  if (!student || student.leftAt !== null) {
+    return {
+      success: false,
+      error: 'Student not found with this student number. Please check and try again.',
+    };
+  }
+
+  // Check if already actively linked
+  const isLinked = await isParentLinkedToStudent(parentId, student.id);
+  if (isLinked) {
+    return {
+      success: false,
+      error: 'You are already linked to this student.',
+    };
+  }
+
+  // Check if pending request exists
+  const pending = await prisma.studentLinkRequest.findFirst({
+    where: {
+      parentId,
+      studentId: student.id,
+      status: 'PENDING',
+    },
+  });
+
+  if (pending) {
+    return {
+      success: false,
+      error: 'A link request for this student is already pending staff approval.',
+    };
+  }
+
+  const request = await prisma.studentLinkRequest.create({
+    data: {
+      parentId,
+      studentId: student.id,
+      status: 'PENDING',
+    },
+  });
+
+  return {
+    success: true,
+    requestId: request.id,
+    studentId: student.id,
+    studentName: student.name,
+    className: student.className,
+  };
+}
+
+export async function getParentLinkRequests(parentId: string): Promise<StudentLinkRequestRecord[]> {
+  const requests = await prisma.studentLinkRequest.findMany({
+    where: { parentId },
+    include: {
+      student: true,
+      reviewedByStaff: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return requests.map(r => ({
+    id: r.id,
+    parentId: r.parentId,
+    studentId: r.studentId,
+    studentNumber: r.student.studentNumber,
+    studentName: r.student.name,
+    studentClass: r.student.className,
+    status: r.status as LinkRequestStatus,
+    reviewedByStaffId: r.reviewedByStaffId,
+    reviewerName: r.reviewedByStaff?.name ?? null,
+    reviewedAt: r.reviewedAt,
+    rejectionReason: r.rejectionReason,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+export async function getAllStudentLinkRequests(statusFilter?: LinkRequestStatus): Promise<StudentLinkRequestRecord[]> {
+  const requests = await prisma.studentLinkRequest.findMany({
+    where: statusFilter ? { status: statusFilter } : undefined,
+    include: {
+      parent: true,
+      student: true,
+      reviewedByStaff: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return requests.map(r => ({
+    id: r.id,
+    parentId: r.parentId,
+    parentName: r.parent.name,
+    parentEmail: r.parent.email,
+    studentId: r.studentId,
+    studentNumber: r.student.studentNumber,
+    studentName: r.student.name,
+    studentClass: r.student.className,
+    status: r.status as LinkRequestStatus,
+    reviewedByStaffId: r.reviewedByStaffId,
+    reviewerName: r.reviewedByStaff?.name ?? null,
+    reviewedAt: r.reviewedAt,
+    rejectionReason: r.rejectionReason,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+export async function approveStudentLinkRequest(
+  requestId: string,
+  staffId: string
+): Promise<{ success: boolean; error?: string; parentId?: string; studentId?: string }> {
+  try {
+    return await prisma.$transaction(async tx => {
+      const request = await tx.studentLinkRequest.findUnique({
+        where: { id: requestId },
+        include: { student: true },
+      });
+
+      if (!request) {
+        return { success: false, error: 'Link request not found.' };
+      }
+
+      if (request.status !== 'PENDING') {
+        return { success: false, error: `Link request has already been ${request.status.toLowerCase()}.` };
+      }
+
+      if (request.student.leftAt !== null) {
+        return { success: false, error: 'Cannot link a student who is no longer actively enrolled.' };
+      }
+
+      // Create ParentStudent link
+      await tx.parentStudent.upsert({
+        where: {
+          parentId_studentId: {
+            parentId: request.parentId,
+            studentId: request.studentId,
+          },
+        },
+        create: {
+          parentId: request.parentId,
+          studentId: request.studentId,
+        },
+        update: {},
+      });
+
+      // Update link request
+      await tx.studentLinkRequest.update({
+        where: { id: requestId },
+        data: {
+          status: 'APPROVED',
+          reviewedByStaffId: staffId,
+          reviewedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        parentId: request.parentId,
+        studentId: request.studentId,
+      };
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to approve link request.';
+    return { success: false, error: message };
+  }
+}
+
+export async function rejectStudentLinkRequest(
+  requestId: string,
+  staffId: string,
+  rejectionReason?: string
+): Promise<{ success: boolean; error?: string; parentId?: string; studentId?: string }> {
+  try {
+    const request = await prisma.studentLinkRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!request) {
+      return { success: false, error: 'Link request not found.' };
+    }
+
+    if (request.status !== 'PENDING') {
+      return { success: false, error: `Link request has already been ${request.status.toLowerCase()}.` };
+    }
+
+    await prisma.studentLinkRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'REJECTED',
+        reviewedByStaffId: staffId,
+        reviewedAt: new Date(),
+        rejectionReason: rejectionReason?.trim() || null,
+      },
+    });
+
+    return {
+      success: true,
+      parentId: request.parentId,
+      studentId: request.studentId,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to reject link request.';
+    return { success: false, error: message };
+  }
+}
+
+export async function getAllParentStudentLinks(): Promise<
+  Array<{
+    id: string;
+    parentId: string;
+    parentName: string;
+    parentEmail: string;
+    studentId: string;
+    studentNumber: string;
+    studentName: string;
+    className: string;
+    createdAt: Date;
+  }>
+> {
+  const links = await prisma.parentStudent.findMany({
+    include: {
+      parent: true,
+      student: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return links
+    .filter(l => l.student.leftAt === null)
+    .map(l => ({
+      id: l.id,
+      parentId: l.parentId,
+      parentName: l.parent.name,
+      parentEmail: l.parent.email,
+      studentId: l.studentId,
+      studentNumber: l.student.studentNumber,
+      studentName: l.student.name,
+      className: l.student.className,
+      createdAt: l.createdAt,
+    }));
+}
+
+export async function removeParentStudentLink(
+  linkId: string
+): Promise<{ success: boolean; error?: string; parentId?: string; studentId?: string }> {
+  try {
+    const link = await prisma.parentStudent.findUnique({
+      where: { id: linkId },
+    });
+
+    if (!link) {
+      return { success: false, error: 'Guardian-student link not found.' };
+    }
+
+    await prisma.parentStudent.delete({
+      where: { id: linkId },
+    });
+
+    return {
+      success: true,
+      parentId: link.parentId,
+      studentId: link.studentId,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to remove link.';
+    return { success: false, error: message };
+  }
 }
 
 // ==========================================

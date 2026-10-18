@@ -321,6 +321,8 @@ export function ParentRegisterForm() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [studentNumber, setStudentNumber] = useState('');
+  const [studentNumberError, setStudentNumberError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -328,6 +330,18 @@ export function ParentRegisterForm() {
   const [confirmPasswordTouched, setConfirmPasswordTouched] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [termsError, setTermsError] = useState<string | null>(null);
+
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [linkStatus, setLinkStatus] = useState<{
+    success: boolean;
+    error?: string;
+    studentName?: string;
+    className?: string;
+    requestId?: string;
+  } | null>(null);
+  const [retryStudentNumber, setRetryStudentNumber] = useState('');
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const [activeLegalDoc, setActiveLegalDoc] = useState<'terms' | 'privacy' | null>(null);
   const lastActiveTriggerRef = useRef<HTMLElement | null>(null);
@@ -406,6 +420,67 @@ export function ParentRegisterForm() {
     }
   };
 
+  const handleStudentNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.toUpperCase();
+    setStudentNumber(val);
+    if (val.trim()) {
+      setStudentNumberError(null);
+    }
+  };
+
+  const handleStudentNumberBlur = () => {
+    if (!studentNumber.trim()) {
+      setStudentNumberError("Enter your child's student number.");
+    } else {
+      setStudentNumberError(null);
+    }
+  };
+
+  const handleRetryLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRetryError(null);
+    const trimmed = retryStudentNumber.trim().toUpperCase();
+    if (!trimmed) {
+      setRetryError('Please enter a valid student number.');
+      document.getElementById('retry-student-number')?.focus();
+      return;
+    }
+
+    setRetryLoading(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: registeredEmail || email,
+          token: registeredToken,
+          studentNumber: trimmed,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRetryError(data.error || 'Failed to submit student link request.');
+        document.getElementById('retry-student-number')?.focus();
+      } else {
+        setStudentNumber(trimmed);
+        setLinkStatus({
+          success: true,
+          studentName: data.studentName,
+          className: data.className,
+          requestId: data.requestId,
+        });
+        setRetryError(null);
+        setRetryStudentNumber('');
+      }
+    } catch {
+      setRetryError('Something went wrong. Please check your connection and try again.');
+      document.getElementById('retry-student-number')?.focus();
+    } finally {
+      setRetryLoading(false);
+    }
+  };
+
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setPassword(val);
@@ -479,33 +554,45 @@ export function ParentRegisterForm() {
     const nameValidationError = validateFullName(name);
     if (nameValidationError) {
       setNameError(nameValidationError);
+      document.getElementById('name')?.focus();
       return;
     }
 
     if (!isValidEmail(email)) {
       setEmailError('Enter a valid email address');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
+    if (!studentNumber.trim()) {
+      setStudentNumberError("Enter your child's student number.");
+      document.getElementById('studentNumber')?.focus();
       return;
     }
 
     if (!password) {
       setPasswordError('Enter a password.');
+      document.getElementById('password')?.focus();
       return;
     }
 
     const passwordErr = await validatePassword(password, true);
     if (passwordErr) {
       setPasswordError(passwordErr);
+      document.getElementById('password')?.focus();
       return;
     }
 
     if (confirmPassword !== password) {
       setConfirmPasswordTouched(true);
       setConfirmPasswordError('Passwords do not match.');
+      document.getElementById('confirmPassword')?.focus();
       return;
     }
 
     if (!acceptedTerms) {
       setTermsError('Please accept the Terms and Conditions and Privacy Policy to continue.');
+      document.getElementById('terms')?.focus();
       return;
     }
 
@@ -515,22 +602,39 @@ export function ParentRegisterForm() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email, password }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email,
+          password,
+          studentNumber: studentNumber.trim().toUpperCase(),
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.error || 'Registration failed. Please check your details.');
+        setTimeout(() => {
+          document.getElementById('register-error-alert')?.focus();
+        }, 50);
         return;
       }
 
       setIsSuccess(true);
+      setRegisteredEmail(email);
       if (data.verificationToken) {
         setRegisteredToken(data.verificationToken);
       }
+      if (data.studentLink) {
+        setLinkStatus(data.studentLink);
+      } else {
+        setLinkStatus({ success: false, error: 'No link request was created.' });
+      }
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('register-error-alert')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -543,6 +647,8 @@ export function ParentRegisterForm() {
     Boolean(email.trim()) &&
     isValidEmail(email) &&
     !emailError &&
+    Boolean(studentNumber.trim()) &&
+    !studentNumberError &&
     Boolean(password) &&
     validatePasswordSync(password) === null &&
     !passwordError &&
@@ -561,24 +667,187 @@ export function ParentRegisterForm() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <AlertBox
             type="success"
-            message={`A verification link has been sent to ${email}. Please check your inbox and verify your email before signing in.`}
+            message={`A verification link has been sent to ${registeredEmail || email}. Please check your inbox and verify your email before signing in.`}
           />
 
-          <p
-            style={{
-              fontFamily: 'var(--typography-body-medium-fontfamily)',
-              fontSize: 'var(--typography-body-medium-fontsize)',
-              color: 'var(--color-roles-on-surface-variant)',
-              lineHeight: 'var(--typography-body-medium-lineheight)',
-            }}
-          >
-            Once verified, you will be able to sign in immediately. The school staff will then link your account to your child or children.
-          </p>
+          {/* Student Linking Status & Pending Notice */}
+          {linkStatus?.success ? (
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-surface)',
+                border: '1px solid var(--color-roles-outline-color)',
+                borderRadius: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span
+                  style={{
+                    fontFamily: 'var(--typography-title-small-fontfamily)',
+                    fontSize: 'var(--typography-title-small-fontsize)',
+                    fontWeight: 700,
+                    color: 'var(--color-roles-on-surface)',
+                  }}
+                >
+                  Student Linking Request Submitted
+                </span>
+                <span
+                  style={{
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    backgroundColor: 'rgba(237, 108, 2, 0.12)',
+                    color: '#c25700',
+                    border: '1px solid rgba(237, 108, 2, 0.3)',
+                  }}
+                >
+                  Pending Staff Approval
+                </span>
+              </div>
+
+              <div
+                style={{
+                  padding: '10px 14px',
+                  backgroundColor: 'var(--color-roles-surface-variant)',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  color: 'var(--color-roles-on-surface)',
+                }}
+              >
+                <div><strong>Student:</strong> {linkStatus.studentName || 'Student'}</div>
+                <div><strong>Student Number:</strong> {studentNumber}</div>
+                {linkStatus.className && <div><strong>Class:</strong> {linkStatus.className}</div>}
+              </div>
+
+              <p
+                style={{
+                  fontFamily: 'var(--typography-body-small-fontfamily)',
+                  fontSize: 'var(--typography-body-small-fontsize)',
+                  color: 'var(--color-roles-on-surface-variant)',
+                  lineHeight: 'var(--typography-body-small-lineheight)',
+                  margin: 0,
+                }}
+              >
+                Your request has been submitted to school administrators. Under school security rules, access to your child&apos;s attendance and academic records is strictly restricted until staff formally review and approve this link.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-surface)',
+                border: '1px solid var(--color-roles-outline-color)',
+                borderRadius: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: 'var(--typography-title-small-fontfamily)',
+                  fontSize: 'var(--typography-title-small-fontsize)',
+                  fontWeight: 700,
+                  color: 'var(--color-roles-error)',
+                }}
+              >
+                Student Linking Incomplete
+              </div>
+
+              <AlertBox
+                type="error"
+                message={linkStatus?.error || 'Student not found with this student number. Please check the number and try again.'}
+              />
+
+              <p
+                style={{
+                  fontFamily: 'var(--typography-body-small-fontfamily)',
+                  fontSize: 'var(--typography-body-small-fontsize)',
+                  color: 'var(--color-roles-on-surface-variant)',
+                  lineHeight: 'var(--typography-body-small-lineheight)',
+                  margin: 0,
+                }}
+              >
+                Your parent account is already registered. You do <strong>not</strong> need to create another account. You can retry linking now or link your child later from the Records page:
+              </p>
+
+              {retryError && (
+                <div id="retry-student-error">
+                  <AlertBox type="error" message={retryError} />
+                </div>
+              )}
+
+              <form onSubmit={handleRetryLink} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} noValidate>
+                <div>
+                  <label
+                    htmlFor="retry-student-number"
+                    style={{
+                      display: 'block',
+                      fontFamily: 'var(--typography-label-medium-fontfamily)',
+                      fontSize: 'var(--typography-label-medium-fontsize)',
+                      fontWeight: 600,
+                      color: 'var(--color-roles-on-surface)',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    Student Number{' '}
+                    <span aria-hidden="true" style={{ color: 'var(--color-roles-error)', fontWeight: 'bold' }}>
+                      *
+                    </span>
+                  </label>
+                  <input
+                    id="retry-student-number"
+                    type="text"
+                    placeholder="Enter correct Student No (e.g. SP-2026-0001)"
+                    value={retryStudentNumber}
+                    onChange={(e) => setRetryStudentNumber(e.target.value.toUpperCase())}
+                    autoCapitalize="characters"
+                    required
+                    aria-invalid={Boolean(retryError)}
+                    aria-describedby={retryError ? 'retry-student-error' : undefined}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '6px',
+                      border: retryError
+                        ? '1px solid var(--color-roles-error)'
+                        : '1px solid var(--color-roles-outline-color)',
+                      backgroundColor: 'var(--color-roles-background)',
+                      color: 'var(--color-roles-on-surface)',
+                      fontSize: 'var(--typography-body-medium-fontsize)',
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={retryLoading || !retryStudentNumber.trim()}
+                  aria-busy={retryLoading ? 'true' : undefined}
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: 'var(--color-roles-primary)',
+                    color: 'var(--color-roles-on-primary)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: 'var(--typography-label-medium-fontsize)',
+                    fontWeight: 700,
+                    cursor: retryLoading ? 'not-allowed' : 'pointer',
+                    opacity: retryLoading || !retryStudentNumber.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {retryLoading ? 'Submitting Request...' : 'Submit Student Linking Request'}
+                </button>
+              </form>
+            </div>
+          )}
 
           {registeredToken && (
             <div
               style={{
-                marginTop: '12px',
+                marginTop: '4px',
                 padding: '14px',
                 backgroundColor: 'var(--color-roles-surface-variant)',
                 border: '1px solid var(--color-roles-outline-color)',
@@ -613,7 +882,7 @@ export function ParentRegisterForm() {
             </div>
           )}
 
-          <div style={{ marginTop: '16px' }}>
+          <div style={{ marginTop: '12px' }}>
             <Link
               href="/auth/login"
               style={{
@@ -665,7 +934,7 @@ export function ParentRegisterForm() {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="register-error-alert" type="error" message={error} />}
 
         <FormField
           id="name"
@@ -691,6 +960,19 @@ export function ParentRegisterForm() {
           error={emailError || undefined}
           onChange={handleEmailChange}
           onBlur={handleEmailBlur}
+        />
+
+        <FormField
+          id="studentNumber"
+          label="Child's Student Number"
+          type="text"
+          required
+          placeholder="e.g. SP-2026-0001"
+          helperText="Found on your child's admission letter or student ID card."
+          value={studentNumber}
+          error={studentNumberError || undefined}
+          onChange={handleStudentNumberChange}
+          onBlur={handleStudentNumberBlur}
         />
 
         <FormField
@@ -723,10 +1005,11 @@ export function ParentRegisterForm() {
 
         {/* Terms and Conditions Acceptance Checkbox */}
         <div style={{ marginTop: '20px', marginBottom: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>
             <input
               id="terms"
               type="checkbox"
+              required
               checked={acceptedTerms}
               onChange={(e) => {
                 setAcceptedTerms(e.target.checked);
@@ -737,30 +1020,34 @@ export function ParentRegisterForm() {
               aria-invalid={Boolean(termsError)}
               aria-describedby={termsError ? 'terms-error' : undefined}
               style={{
-                width: '18px',
-                height: '18px',
-                marginTop: '3px',
+                width: '16px',
+                height: '16px',
                 accentColor: 'var(--color-roles-primary)',
                 cursor: 'pointer',
                 flexShrink: 0,
               }}
             />
-            <label
-              htmlFor="terms"
+            <div
               style={{
-                fontFamily: 'var(--typography-body-medium-fontfamily)',
-                fontSize: 'var(--typography-body-medium-fontsize)',
-                lineHeight: 'var(--typography-body-medium-lineheight)',
+                fontFamily: 'var(--typography-body-small-fontfamily)',
+                fontSize: 'var(--typography-body-small-fontsize)',
+                lineHeight: 'var(--typography-body-small-lineheight)',
                 color: 'var(--color-roles-on-surface)',
-                cursor: 'pointer',
+                whiteSpace: 'nowrap',
               }}
             >
-              I agree to the{' '}
+              <label
+                htmlFor="terms"
+                style={{
+                  cursor: 'pointer',
+                }}
+              >
+                I agree to the{' '}
+              </label>
               <button
                 type="button"
                 onClick={(e) => {
                   e.preventDefault();
-                  e.stopPropagation();
                   openLegalModal('terms', e.currentTarget);
                 }}
                 style={{
@@ -778,12 +1065,18 @@ export function ParentRegisterForm() {
               >
                 Terms and Conditions
               </button>{' '}
-              and{' '}
+              <label
+                htmlFor="terms"
+                style={{
+                  cursor: 'pointer',
+                }}
+              >
+                and{' '}
+              </label>
               <button
                 type="button"
                 onClick={(e) => {
                   e.preventDefault();
-                  e.stopPropagation();
                   openLegalModal('privacy', e.currentTarget);
                 }}
                 style={{
@@ -801,14 +1094,22 @@ export function ParentRegisterForm() {
               >
                 Privacy Policy
               </button>
-              .
-            </label>
+              <label
+                htmlFor="terms"
+                style={{
+                  cursor: 'pointer',
+                }}
+              >
+                .
+              </label>
+            </div>
           </div>
 
           {termsError && (
             <span
               id="terms-error"
               role="alert"
+              aria-live="polite"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

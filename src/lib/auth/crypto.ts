@@ -1,8 +1,18 @@
 import 'server-only';
 import { randomBytes, scrypt, timingSafeEqual, createHmac, createHash } from 'node:crypto';
-import { promisify } from 'node:util';
-
-const scryptAsync = promisify(scrypt);
+function scryptAsync(
+  password: string,
+  salt: string,
+  keyLength: number,
+  options: { N: number; r: number; p: number }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keyLength, options, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
 
 const KEY_LENGTH = 64;
 const SALT_LENGTH = 16;

@@ -46,11 +46,17 @@ export function StaffLoginForm() {
     setError(null);
 
     if (!isButtonEnabled) {
+      if (!email.trim()) {
+        document.getElementById('email')?.focus();
+      } else if (!password) {
+        document.getElementById('password')?.focus();
+      }
       return;
     }
 
     if (!isValidEmail(email)) {
       setEmailError('Enter a valid email address');
+      document.getElementById('email')?.focus();
       return;
     }
 
@@ -67,6 +73,9 @@ export function StaffLoginForm() {
 
       if (!res.ok) {
         setError('Invalid email or password.');
+        setTimeout(() => {
+          document.getElementById('staff-login-error')?.focus();
+        }, 50);
         return;
       }
 
@@ -76,6 +85,9 @@ export function StaffLoginForm() {
       router.refresh();
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('staff-login-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -112,7 +124,7 @@ export function StaffLoginForm() {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="staff-login-error" type="error" message={error} />}
 
         <FormField
           id="email"

@@ -31,6 +31,7 @@ model Parent {
   updatedAt              DateTime        @updatedAt
 
   students               ParentStudent[]
+  linkRequests           StudentLinkRequest[]
   payments               Payment[]
   arrivalConfirmations   ArrivalConfirmation[]
   aiUsageDaily           AiUsageDaily[]
@@ -47,8 +48,9 @@ model StaffUser {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  feeEntries        FeeEntry[]
-  attendanceRecords AttendanceRecord[]
+  feeEntries           FeeEntry[]
+  attendanceRecords    AttendanceRecord[]
+  reviewedLinkRequests StudentLinkRequest[]
 
   @@map("staff_users")
 }
@@ -100,20 +102,49 @@ model RateLimit {
 // ==========================================
 
 model Student {
-  id        String    @id @default(cuid())
-  name      String
-  className String
-  leftAt    DateTime? // Leaver marker (Addendum §9.6): parent access terminates if non-null
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  studentNumber String    @unique
+  name          String
+  className     String
+  leftAt        DateTime? // Leaver marker (Addendum §9.6): parent access terminates if non-null
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   guardians            ParentStudent[]
+  linkRequests         StudentLinkRequest[]
   attendanceRecords    AttendanceRecord[]
   arrivalConfirmations ArrivalConfirmation[]
   feeEntries           FeeEntry[]
   payments             Payment[]
 
   @@map("students")
+}
+
+enum LinkRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model StudentLinkRequest {
+  id                String            @id @default(cuid())
+  parentId          String
+  studentId         String
+  status            LinkRequestStatus @default(PENDING)
+  reviewedByStaffId String?
+  reviewedAt        DateTime?
+  rejectionReason   String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  parent          Parent     @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student         Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  reviewedByStaff StaffUser? @relation(fields: [reviewedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([parentId])
+  @@index([studentId])
+  @@index([status])
+  @@map("student_link_requests")
 }
 
 model ParentStudent {

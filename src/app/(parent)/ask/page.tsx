@@ -126,15 +126,35 @@ export default async function AskPage() {
             <div
               style={{
                 marginTop: '8px',
-                padding: '14px',
+                padding: '16px',
                 backgroundColor: 'var(--color-roles-primary-container)',
                 border: '1px solid var(--color-roles-outline-color)',
                 color: 'var(--color-roles-on-primary-container)',
                 fontSize: 'var(--typography-body-medium-fontsize)',
                 lineHeight: 'var(--typography-body-medium-lineheight)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
               }}
             >
-              <strong>Status: Account Verified.</strong> Your parent account is active. School staff will link your account to your child or children. You can use Ask the School and Ask the Office while waiting for student linking.
+              <div>
+                <strong>Status: Account Verified.</strong> Your parent account is active. To access your child&apos;s
+                records and attendance, submit your child&apos;s Student Number for staff verification.
+              </div>
+              <div>
+                <Link
+                  href="/records"
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: 'var(--color-roles-on-primary-container)',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Link your child via Student Number &rarr;
+                </Link>
+              </div>
             </div>
           ) : (
             <div
@@ -145,9 +165,27 @@ export default async function AskPage() {
                 border: '1px solid var(--color-roles-outline-color)',
                 fontSize: 'var(--typography-body-medium-fontsize)',
                 color: 'var(--color-roles-on-surface)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
               }}
             >
-              <strong>Status: Linked Guardian.</strong> You have active student links associated with your account.
+              <div>
+                <strong>Status: Linked Guardian.</strong> You have active student links associated with your account.
+              </div>
+              <Link
+                href="/records"
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--color-roles-primary)',
+                  textDecoration: 'none',
+                }}
+              >
+                View Records &rarr;
+              </Link>
             </div>
           )}
         </div>
@@ -204,7 +242,6 @@ export default async function AskPage() {
               padding: '18px',
               backgroundColor: 'var(--color-roles-surface)',
               border: '1px solid var(--color-roles-outline-color)',
-              opacity: session.isLinked ? 1 : 0.6,
             }}
           >
             <h2
@@ -227,9 +264,20 @@ export default async function AskPage() {
               }}
             >
               {session.isLinked
-                ? 'View your child\'s verified attendance figures, fee balance, and enrollment.'
-                : 'Available once school staff links your account to your child.'}
+                ? "View your child's verified attendance figures, fee balance, and enrollment."
+                : 'Link your child via Student Number to view attendance and records.'}
             </p>
+            <Link
+              href="/records"
+              style={{
+                fontSize: 'var(--typography-label-small-fontsize)',
+                color: 'var(--color-roles-primary)',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              {session.isLinked ? 'Access Records &rarr;' : 'Link Child &rarr;'}
+            </Link>
           </div>
         </div>
 

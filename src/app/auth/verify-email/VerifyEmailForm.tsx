@@ -16,7 +16,10 @@ function VerifyEmailContent() {
   const [error, setError] = useState<string | null>(null);
 
   const performVerification = async (tokenToVerify: string) => {
-    if (!tokenToVerify) return;
+    if (!tokenToVerify) {
+      document.getElementById('token')?.focus();
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -24,19 +27,25 @@ function VerifyEmailContent() {
       const res = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: tokenToVerify }),
+        body: JSON.stringify({ token: tokenToVerify.trim() }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         setError(data.error || 'Verification failed. The link may have expired.');
+        setTimeout(() => {
+          document.getElementById('verify-email-error')?.focus();
+        }, 50);
         return;
       }
 
       setSuccess(true);
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('verify-email-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -93,7 +102,7 @@ function VerifyEmailContent() {
       backHref="/auth/login"
       backLabel="Sign In"
     >
-      {error && <AlertBox type="error" message={error} />}
+      {error && <AlertBox id="verify-email-error" type="error" message={error} />}
 
       {loading ? (
         <div
@@ -145,6 +154,7 @@ function VerifyEmailContent() {
             id="token"
             label="Verification Token"
             type="text"
+            autoComplete="one-time-code"
             required
             placeholder="Paste your verification token"
             value={token}

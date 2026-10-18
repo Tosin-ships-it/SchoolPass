@@ -41,8 +41,8 @@ export function FormField({
         : inputProps.value !== undefined
         ? String(inputProps.value)
         : '';
-    if (!val || !String(val).trim()) {
-      setInternalError('This field must not be empty');
+    if (inputProps.required && (!val || !String(val).trim())) {
+      setInternalError('This field is required');
     } else {
       setInternalError(null);
     }
@@ -86,9 +86,23 @@ export function FormField({
           fontSize: 'var(--typography-label-large-fontsize)',
           fontWeight: 600,
           color: 'var(--color-roles-on-surface)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
         }}
       >
-        {label}
+        <span>{label}</span>
+        {inputProps.required && (
+          <span
+            aria-hidden="true"
+            style={{
+              color: 'var(--color-roles-error)',
+              fontWeight: 700,
+            }}
+          >
+            *
+          </span>
+        )}
       </label>
 
       <div style={{ position: 'relative', width: '100%' }}>
@@ -100,7 +114,7 @@ export function FormField({
           style={{
             width: '100%',
             height: '42px',
-            padding: showPasswordToggle ? '8px 36px 8px 12px' : '8px 12px',
+            padding: showPasswordToggle ? '8px 40px 8px 12px' : '8px 12px',
             fontFamily: 'var(--typography-body-large-fontfamily)',
             fontSize: 'var(--typography-body-large-fontsize)',
             lineHeight: 'var(--typography-body-large-lineheight)',
@@ -130,7 +144,9 @@ export function FormField({
         {showPasswordToggle && (
           <button
             type="button"
-            aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+            aria-label={isPasswordVisible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+            aria-controls={id}
+            aria-pressed={isPasswordVisible}
             onClick={() => setIsPasswordVisible((prev) => !prev)}
             style={{
               position: 'absolute',
@@ -139,7 +155,7 @@ export function FormField({
               transform: 'translateY(-50%)',
               background: 'none',
               border: 'none',
-              padding: '4px',
+              padding: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -190,6 +206,7 @@ export function FormField({
         <span
           id={errorId}
           role="alert"
+          aria-live="polite"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -253,6 +270,7 @@ export function PrimaryButton({
   return (
     <button
       disabled={disabled || loading}
+      aria-busy={loading ? 'true' : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -308,9 +326,11 @@ export function PrimaryButton({
 export function AlertBox({
   type = 'error',
   message,
+  id,
 }: {
   type?: 'error' | 'success' | 'info';
   message: string;
+  id?: string;
 }) {
   const bg =
     type === 'error'
@@ -331,7 +351,10 @@ export function AlertBox({
 
   return (
     <div
+      id={id}
+      tabIndex={-1}
       role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
       style={{
         padding: '12px 14px',
         backgroundColor: bg,
@@ -341,6 +364,7 @@ export function AlertBox({
         fontSize: 'var(--typography-body-medium-fontsize)',
         lineHeight: 'var(--typography-body-medium-lineheight)',
         marginBottom: '16px',
+        outline: 'none',
       }}
     >
       {message}

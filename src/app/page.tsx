@@ -331,10 +331,10 @@ function TermsView() {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams?: Promise<{ view?: string }> | { view?: string };
+  searchParams?: Promise<{ view?: string }>;
 }) {
   const session = await getSession();
-  const resolvedParams = searchParams ? await Promise.resolve(searchParams) : undefined;
+  const resolvedParams = searchParams ? await searchParams : undefined;
   const currentView = resolvedParams?.view;
 
   return (

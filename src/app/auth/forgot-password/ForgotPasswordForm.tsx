@@ -15,13 +15,20 @@ export function ForgotPasswordForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim()) {
+      setError('Please enter your account email address.');
+      document.getElementById('email')?.focus();
+      return;
+    }
+
     setLoading(true);
 
     try {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim() }),
       });
 
       const data = await res.json();
@@ -32,6 +39,9 @@ export function ForgotPasswordForm() {
       }
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('forgot-password-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -144,7 +154,7 @@ export function ForgotPasswordForm() {
       }
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="forgot-password-error" type="error" message={error} />}
 
         <FormField
           id="email"

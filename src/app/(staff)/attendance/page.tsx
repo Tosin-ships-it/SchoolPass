@@ -174,20 +174,23 @@ export default async function StaffAttendancePage() {
             </p>
           </div>
 
-          <div
+          <Link
+            href="/guardian-links"
             style={{
               padding: '16px',
               backgroundColor: 'var(--color-roles-surface)',
               border: '1px solid var(--color-roles-outline-color)',
+              textDecoration: 'none',
+              display: 'block',
             }}
           >
             <h3 style={{ fontSize: '15px', color: 'var(--color-roles-primary)', marginBottom: '4px' }}>
-              Guardian Links
+              Guardian Links &rarr;
             </h3>
-            <p style={{ fontSize: '12px', color: 'var(--color-roles-on-surface-variant)' }}>
-              Link verified parent accounts to students.
+            <p style={{ fontSize: '12px', color: 'var(--color-roles-on-surface-variant)', margin: 0 }}>
+              Review parent linking requests and manage verified student links.
             </p>
-          </div>
+          </Link>
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '12px' }}>

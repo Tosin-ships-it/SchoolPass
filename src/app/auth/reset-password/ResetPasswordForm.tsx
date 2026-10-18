@@ -23,16 +23,25 @@ function ResetPasswordContent() {
 
     if (!token.trim()) {
       setError('Password reset token is missing.');
+      document.getElementById('token')?.focus();
       return;
     }
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+    if (!password) {
+      setError('Please enter a new password.');
+      document.getElementById('password')?.focus();
       return;
     }
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters long.');
+      document.getElementById('password')?.focus();
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      document.getElementById('confirmPassword')?.focus();
       return;
     }
 
@@ -49,12 +58,18 @@ function ResetPasswordContent() {
 
       if (!res.ok) {
         setError(data.error || 'Failed to reset password. The link may have expired.');
+        setTimeout(() => {
+          document.getElementById('reset-password-error')?.focus();
+        }, 50);
         return;
       }
 
       setSuccess(true);
     } catch {
       setError('Something went wrong. Please check your connection and try again.');
+      setTimeout(() => {
+        document.getElementById('reset-password-error')?.focus();
+      }, 50);
     } finally {
       setLoading(false);
     }
@@ -106,13 +121,14 @@ function ResetPasswordContent() {
       backLabel="Sign In"
     >
       <form onSubmit={handleSubmit} noValidate>
-        {error && <AlertBox type="error" message={error} />}
+        {error && <AlertBox id="reset-password-error" type="error" message={error} />}
 
         {!tokenFromUrl && (
           <FormField
             id="token"
             label="Reset Token"
             type="text"
+            autoComplete="one-time-code"
             required
             placeholder="Paste your reset token"
             value={token}
@@ -126,6 +142,7 @@ function ResetPasswordContent() {
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           helperText="Minimum 8 characters. Cannot reuse last 3 passwords."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -137,6 +154,7 @@ function ResetPasswordContent() {
           type="password"
           autoComplete="new-password"
           required
+          showPasswordToggle={true}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
         />

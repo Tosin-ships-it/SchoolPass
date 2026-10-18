@@ -16,6 +16,7 @@ import {
   updateParent,
   findStaffByEmail,
   findStaffById,
+  updateStaffPassword,
   saveVerificationToken,
   findVerificationTokenByHash,
   deleteVerificationToken,
@@ -31,9 +32,19 @@ import {
   checkRateLimit,
   recordFailedAttempt,
   resetRateLimit,
+  createStudentLinkRequest,
+  getParentLinkRequests,
+  getAllStudentLinkRequests,
+  approveStudentLinkRequest,
+  rejectStudentLinkRequest,
+  getAllParentStudentLinks,
+  removeParentStudentLink,
   type ParentAccount,
   type StaffAccount,
   type SessionRecord,
+  type ParentStudentLink,
+  type StudentLinkRequestRecord,
+  type LinkRequestStatus,
 } from './store';
 import { logEvent } from '@/lib/logging';
 
@@ -129,10 +140,19 @@ export async function registerParent(params: {
   name: string;
   email: string;
   password: string;
+  studentNumber?: string;
 }): Promise<{
   success: boolean;
   error?: string;
   verificationToken?: string;
+  parentId?: string;
+  studentLink?: {
+    success: boolean;
+    error?: string;
+    requestId?: string;
+    studentName?: string;
+    className?: string;
+  };
 }> {
   const email = params.email.trim().toLowerCase();
   const name = params.name.trim();
@@ -184,10 +204,69 @@ export async function registerParent(params: {
     outcome: 'success',
   });
 
+  // If student number is provided, submit student-linking request immediately
+  let studentLink:
+    | {
+        success: boolean;
+        error?: string;
+        requestId?: string;
+        studentName?: string;
+        className?: string;
+      }
+    | undefined = undefined;
+
+  if (params.studentNumber && params.studentNumber.trim().length > 0) {
+    studentLink = await submitStudentLinkRequest(parent.id, params.studentNumber.trim());
+  }
+
   return {
     success: true,
     verificationToken: rawToken,
+    parentId: parent.id,
+    studentLink,
   };
+}
+
+/**
+ * Retry student linking request during registration before email verification.
+ * Authenticated via the cryptographic verification token issued to the parent.
+ */
+export async function retryRegistrationStudentLink(params: {
+  email: string;
+  verificationToken: string;
+  studentNumber: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+  requestId?: string;
+  studentName?: string;
+  className?: string;
+}> {
+  const email = params.email.trim().toLowerCase();
+  const rawToken = params.verificationToken.trim();
+  const studentNumber = params.studentNumber.trim();
+
+  if (!email || !rawToken || !studentNumber) {
+    return { success: false, error: 'Email, verification token, and student number are required.' };
+  }
+
+  const tokenHash = hashToken(rawToken);
+  const tokenRecord = await findVerificationTokenByHash(tokenHash);
+
+  if (!tokenRecord || tokenRecord.email.toLowerCase() !== email) {
+    return { success: false, error: 'Invalid or expired registration session.' };
+  }
+
+  if (tokenRecord.expiresAt.getTime() < Date.now()) {
+    return { success: false, error: 'Verification token has expired. Please sign in or request a new link.' };
+  }
+
+  const parent = await findParentByEmail(email);
+  if (!parent) {
+    return { success: false, error: 'Parent account not found.' };
+  }
+
+  return submitStudentLinkRequest(parent.id, studentNumber);
 }
 
 /**
@@ -452,19 +531,18 @@ export async function resetPassword(
     return { success: false, error: 'Account not found.' };
   }
 
-  // Check password reuse against previous passwords (RULES_CONFIG Rule 5: last 3 passwords)
-  const user = parent || staff!;
-  for (const oldHash of (user.previousPasswordHashes || []).slice(-3)) {
-    const isReused = await verifyPassword(newPassword, oldHash);
-    if (isReused) {
-      return { success: false, error: 'You cannot reuse one of your last 3 passwords.' };
-    }
-  }
-
   const newHash = await hashPassword(newPassword);
-  const updatedPrevious = [...(user.previousPasswordHashes || []), newHash].slice(-3);
 
   if (parent) {
+    // Check password reuse against previous passwords (RULES_CONFIG Rule 5: last 3 passwords)
+    for (const oldHash of (parent.previousPasswordHashes || []).slice(-3)) {
+      const isReused = await verifyPassword(newPassword, oldHash);
+      if (isReused) {
+        return { success: false, error: 'You cannot reuse one of your last 3 passwords.' };
+      }
+    }
+
+    const updatedPrevious = [...(parent.previousPasswordHashes || []), newHash].slice(-3);
     await updateParent(parent.id, {
       passwordHash: newHash,
       previousPasswordHashes: updatedPrevious,
@@ -474,8 +552,12 @@ export async function resetPassword(
     // Invalidate all active sessions for this user (Addendum §5.4)
     await deleteAllUserSessions(parent.id);
   } else if (staff) {
-    staff.passwordHash = newHash;
-    staff.previousPasswordHashes = updatedPrevious;
+    const isReused = await verifyPassword(newPassword, staff.passwordHash);
+    if (isReused) {
+      return { success: false, error: 'You cannot reuse your current password.' };
+    }
+
+    await updateStaffPassword(staff.id, newHash);
     await deleteAllUserSessions(staff.id);
   }
 
@@ -485,7 +567,7 @@ export async function resetPassword(
     level: 'info',
     event: 'password_reset_completed',
     actorType: parent ? 'parent' : 'staff',
-    actorId: user.id,
+    actorId: parent ? parent.id : staff!.id,
     outcome: 'success',
   });
 
@@ -534,3 +616,150 @@ export async function checkParentStudentAuthorization(
   }
   return true;
 }
+
+/**
+ * Submit a student number link request by a parent (PRD §5, Addendum §5.1, RULES_AUTH Rule 3).
+ * Does not grant immediate access; requires staff review and approval.
+ */
+export async function submitStudentLinkRequest(
+  parentId: string,
+  studentNumber: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  requestId?: string;
+  studentName?: string;
+  className?: string;
+}> {
+  const result = await createStudentLinkRequest(parentId, studentNumber);
+
+  if (result.success && result.studentId) {
+    logEvent({
+      level: 'info',
+      event: 'student_link_requested',
+      actorType: 'parent',
+      actorId: parentId,
+      entityType: 'student',
+      entityId: result.studentId,
+      outcome: 'success',
+    });
+  } else {
+    logEvent({
+      level: 'warn',
+      event: 'student_link_request_failed',
+      actorType: 'parent',
+      actorId: parentId,
+      outcome: 'failure',
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Get all student link requests for the authenticated parent.
+ */
+export async function getParentRequests(parentId: string): Promise<StudentLinkRequestRecord[]> {
+  return getParentLinkRequests(parentId);
+}
+
+/**
+ * Get student link requests for Staff & Admin review (RULES_STAFF_UI Rule 1, Rule 2).
+ */
+export async function getStaffLinkRequests(statusFilter?: LinkRequestStatus): Promise<StudentLinkRequestRecord[]> {
+  return getAllStudentLinkRequests(statusFilter);
+}
+
+/**
+ * Approve a student link request (RULES_AUTH Rule 3, RULES_STAFF_UI Rule 6).
+ * Atomically creates ParentStudent link and marks request APPROVED.
+ */
+export async function approveLinkRequest(
+  requestId: string,
+  staffId: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await approveStudentLinkRequest(requestId, staffId);
+
+  if (result.success && result.studentId) {
+    logEvent({
+      level: 'info',
+      event: 'student_link_approved',
+      actorType: 'staff',
+      actorId: staffId,
+      entityType: 'student',
+      entityId: result.studentId,
+      outcome: 'success',
+    });
+  }
+
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Reject a student link request (RULES_AUTH Rule 3, RULES_STAFF_UI Rule 6).
+ */
+export async function rejectLinkRequest(
+  requestId: string,
+  staffId: string,
+  rejectionReason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await rejectStudentLinkRequest(requestId, staffId, rejectionReason);
+
+  if (result.success && result.studentId) {
+    logEvent({
+      level: 'info',
+      event: 'student_link_rejected',
+      actorType: 'staff',
+      actorId: staffId,
+      entityType: 'student',
+      entityId: result.studentId,
+      outcome: 'success',
+    });
+  }
+
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * List all active guardian-student links for Staff & Admin review.
+ */
+export async function listAllGuardianLinks() {
+  return getAllParentStudentLinks();
+}
+
+/**
+ * Remove an existing ParentStudent link (RULES_AUTH Rule 4, RULES_STAFF_UI Rule 6).
+ */
+export async function removeGuardianLink(
+  linkId: string,
+  staffId: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await removeParentStudentLink(linkId);
+
+  if (result.success && result.studentId) {
+    logEvent({
+      level: 'info',
+      event: 'student_link_removed',
+      actorType: 'staff',
+      actorId: staffId,
+      entityType: 'student',
+      entityId: result.studentId,
+      outcome: 'success',
+    });
+  }
+
+  return { success: result.success, error: result.error };
+}
+
+export { getParentStudentLinks };
+
+export type {
+  ParentStudentLink,
+  StudentLinkRequestRecord,
+  LinkRequestStatus,
+};
+
+
+
+
+

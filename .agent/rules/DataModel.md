@@ -131,13 +131,32 @@ Reason: if this file drifts from the schema, the agent will invent.
 - **Purpose**: Core student record.
 - **Fields**:
   - `id`: `String @id @default(cuid())`
+  - `studentNumber`: `String @unique` (Unique institutional student identification number, e.g. SP-2026-0001)
   - `name`: `String`
   - `className`: `String`
   - `leftAt`: `DateTime?` (Addendum 9.6: leaver timestamp. If non-null, parent access terminates immediately)
   - `createdAt`: `DateTime @default(now())`
   - `updatedAt`: `DateTime @updatedAt`
-  - Relations: `guardians ParentStudent[]`, `attendanceRecords AttendanceRecord[]`, `arrivalConfirmations ArrivalConfirmation[]`, `feeEntries FeeEntry[]`, `payments Payment[]`
+  - Relations: `guardians ParentStudent[]`, `linkRequests StudentLinkRequest[]`, `attendanceRecords AttendanceRecord[]`, `arrivalConfirmations ArrivalConfirmation[]`, `feeEntries FeeEntry[]`, `payments Payment[]`
 - **Table mapping**: `@@map("students")`
+
+### Enum: `LinkRequestStatus`
+- Values: `PENDING`, `APPROVED`, `REJECTED`.
+
+### Model: `StudentLinkRequest`
+- **Purpose**: Track parent requests to link their account to a student via student number, pending staff review and approval.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `parentId`: `String`
+  - `studentId`: `String`
+  - `status`: `LinkRequestStatus @default(PENDING)`
+  - `reviewedByStaffId`: `String?`
+  - `reviewedAt`: `DateTime?`
+  - `rejectionReason`: `String?`
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `parent Parent @relation(...)`, `student Student @relation(...)`, `reviewedByStaff StaffUser? @relation(...)`
+- **Constraints**: `@@index([parentId])`, `@@index([studentId])`, `@@index([status])`, `@@map("student_link_requests")`
 
 ### Model: `ParentStudent`
 - **Purpose**: Many-to-many relationship linking verified parents to students. Created strictly by Staff/Admin.
