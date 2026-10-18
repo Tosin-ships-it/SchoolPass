@@ -168,6 +168,23 @@ export async function updateStaffPassword(id: string, passwordHash: string): Pro
   }
 }
 
+export async function createStaffUser(params: {
+  name: string;
+  email: string;
+  passwordHash: string;
+  role?: 'STAFF' | 'ADMIN';
+}): Promise<StaffAccount> {
+  const staff = await prisma.staffUser.create({
+    data: {
+      name: params.name.trim(),
+      email: params.email.toLowerCase().trim(),
+      passwordHash: params.passwordHash,
+      role: params.role || 'STAFF',
+    },
+  });
+  return staff;
+}
+
 
 // ==========================================
 // Verification Tokens

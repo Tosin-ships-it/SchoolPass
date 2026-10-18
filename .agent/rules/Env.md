@@ -44,3 +44,5 @@ The user supplied the environment variable names in `.env.example`.
 - `FLUTTERWAVE_WEBHOOK_SECRET`: Secret hash used to verify Flutterwave webhook signatures.
 - `SESSION_SECRET`: Secret key used for signing and verifying httpOnly session cookies.
 - `NEXT_PUBLIC_APP_URL`: Base URL of the deployment application.
+- `RESEND_API_KEY`: API key for Resend email transmission.
+- `RESEND_FROM`: (Optional) Custom sender address for Resend emails (defaults to SchoolPass <onboarding@resend.dev>).

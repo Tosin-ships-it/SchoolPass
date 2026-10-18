@@ -16,6 +16,7 @@ import {
   updateParent,
   findStaffByEmail,
   findStaffById,
+  createStaffUser,
   updateStaffPassword,
   saveVerificationToken,
   findVerificationTokenByHash,
@@ -47,6 +48,14 @@ import {
   type LinkRequestStatus,
 } from './store';
 import { logEvent } from '@/lib/logging';
+import {
+  triggerWelcomeEmail,
+  sendWelcomeEmail,
+  buildWelcomeEmailHtml,
+  buildWelcomeEmailText,
+  type SendWelcomeEmailParams,
+  type SendEmailResult,
+} from './email';
 
 export const SESSION_COOKIE_NAME = 'schoolpass_session';
 export const SESSION_DURATION_DAYS = 7; // RULES_CONFIG Rule 5: 7 days
@@ -202,6 +211,14 @@ export async function registerParent(params: {
     actorType: 'parent',
     actorId: parent.id,
     outcome: 'success',
+  });
+
+  // Asynchronously dispatch welcome email in the background without delaying registration response
+  triggerWelcomeEmail({
+    to: email,
+    name: parent.name,
+    userId: parent.id,
+    actorType: 'parent',
   });
 
   // If student number is provided, submit student-linking request immediately
@@ -753,11 +770,88 @@ export async function removeGuardianLink(
 
 export { getParentStudentLinks };
 
+/**
+ * Create a staff account (Admin capability, PRD §7.2).
+ * Triggers welcome email to the newly created staff user.
+ */
+export async function createStaffAccount(params: {
+  name: string;
+  email: string;
+  password: string;
+  role?: 'STAFF' | 'ADMIN';
+}): Promise<{
+  success: boolean;
+  error?: string;
+  staffId?: string;
+}> {
+  const email = params.email.trim().toLowerCase();
+  const name = params.name.trim();
+
+  if (!name || name.length < 2) {
+    return { success: false, error: 'Please enter a valid name.' };
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+
+  const strengthCheck = validatePasswordStrength(params.password);
+  if (!strengthCheck.valid) {
+    return { success: false, error: strengthCheck.reason };
+  }
+
+  const existing = await findStaffByEmail(email);
+  if (existing) {
+    return { success: false, error: 'A staff account with this email address already exists.' };
+  }
+
+  const passwordHash = await hashPassword(params.password);
+  const staff = await createStaffUser({
+    name,
+    email,
+    passwordHash,
+    role: params.role || 'STAFF',
+  });
+
+  logEvent({
+    level: 'info',
+    event: 'staff_account_created',
+    actorType: 'admin',
+    entityType: 'staff',
+    entityId: staff.id,
+    outcome: 'success',
+  });
+
+  // Asynchronously dispatch welcome email in the background without delaying creation response
+  triggerWelcomeEmail({
+    to: staff.email,
+    name: staff.name,
+    userId: staff.id,
+    actorType: 'staff',
+  });
+
+  return {
+    success: true,
+    staffId: staff.id,
+  };
+}
+
+export {
+  triggerWelcomeEmail,
+  sendWelcomeEmail,
+  buildWelcomeEmailHtml,
+  buildWelcomeEmailText,
+};
+
 export type {
   ParentStudentLink,
   StudentLinkRequestRecord,
   LinkRequestStatus,
+  SendWelcomeEmailParams,
+  SendEmailResult,
 };
+
 
 
 
