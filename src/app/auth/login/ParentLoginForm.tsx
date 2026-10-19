@@ -24,7 +24,7 @@ export function ParentLoginForm() {
   const [resendStatus, setResendStatus] = useState<string | null>(null);
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+    const val = e.target.value.toLowerCase();
     setEmail(val);
     if (emailError) {
       if (isValidEmail(val)) {
@@ -34,14 +34,18 @@ export function ParentLoginForm() {
   };
 
   const handleEmailBlur = () => {
-    if (email.trim().length > 0 && !isValidEmail(email)) {
+    const normalized = email.toLowerCase();
+    if (normalized !== email) {
+      setEmail(normalized);
+    }
+    if (normalized.trim().length > 0 && !isValidEmail(normalized)) {
       setEmailError('Enter a valid email address');
-    } else if (isValidEmail(email)) {
+    } else if (isValidEmail(normalized)) {
       setEmailError(null);
     }
   };
 
-  const isButtonEnabled = email.trim().length > 0 && password.length > 0;
+  const isButtonEnabled = email.trim().length > 0 && password.trim().length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +56,7 @@ export function ParentLoginForm() {
     if (!isButtonEnabled) {
       if (!email.trim()) {
         document.getElementById('email')?.focus();
-      } else if (!password) {
+      } else if (!password.trim()) {
         document.getElementById('password')?.focus();
       }
       return;
@@ -118,12 +122,8 @@ export function ParentLoginForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-      if (data.verificationToken) {
-        setResendStatus(`Verification link sent! (Test token: ${data.verificationToken})`);
-      } else {
-        setResendStatus('If an unverified account exists, a new verification link has been sent to your email.');
-      }
+      await res.json();
+      setResendStatus('If an unverified account exists, a new verification link has been sent to your email.');
     } catch {
       setError('Failed to resend verification email.');
       setTimeout(() => {

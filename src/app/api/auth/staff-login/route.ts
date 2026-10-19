@@ -1,35 +1,33 @@
-import { NextResponse } from 'next/server';
-import { loginStaff } from '@/lib/auth';
+import { loginStaff, extractClientIp } from '@/lib/auth';
+import { validateJsonBody } from '@/lib/auth/validation';
+import { staffLoginSchema } from '@/lib/auth/schemas';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email, password } = body;
-
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: 'Email and password are required.' },
-        { status: 400 }
-      );
+    const validation = await validateJsonBody(request, staffLoginSchema);
+    if (!validation.success) {
+      return validation.response;
     }
 
-    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const { email, password } = validation.data;
+
+    const ip = extractClientIp(request);
     const result = await loginStaff(email, password, ip);
 
     if (!result.success) {
-      return NextResponse.json(
-        { error: result.error },
-        { status: 401 }
+      return Response.json(
+        { error: result.error, errorCode: result.errorCode },
+        { status: result.errorCode === 'RATE_LIMITED' ? 429 : 401 }
       );
     }
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
       role: result.role,
       message: 'Staff signed in successfully.',
     });
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { error: 'An unexpected error occurred. Please try again.' },
       { status: 500 }
     );

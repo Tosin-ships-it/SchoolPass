@@ -1,27 +1,40 @@
-import { NextResponse } from 'next/server';
-import { resendVerificationEmail } from '@/lib/auth';
+import {
+  resendVerificationEmail,
+  isDevStubsEnabled,
+  extractClientIp,
+  checkIpRateLimit,
+  recordIpFailedAttempt,
+  createRateLimitResponse,
+} from '@/lib/auth';
+import { validateJsonBody } from '@/lib/auth/validation';
+import { resendVerificationSchema } from '@/lib/auth/schemas';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { email } = body;
-
-    if (!email) {
-      return NextResponse.json(
-        { error: 'Email is required.' },
-        { status: 400 }
-      );
+    const ip = extractClientIp(request);
+    const rateCheck = checkIpRateLimit(ip, 'auth_resend_verification');
+    if (!rateCheck.allowed) {
+      return createRateLimitResponse(rateCheck.retryAfterSeconds);
     }
 
+    const validation = await validateJsonBody(request, resendVerificationSchema);
+    if (!validation.success) {
+      return validation.response;
+    }
+
+    // Record request to throttle email dispatch attempts per IP
+    recordIpFailedAttempt(ip, 'auth_resend_verification');
+
+    const { email } = validation.data;
     const result = await resendVerificationEmail(email);
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
       message: 'If an unverified account exists, a new verification link has been sent.',
-      verificationToken: result.verificationToken, // Provided in development
+      ...(isDevStubsEnabled() && { verificationToken: result.verificationToken }),
     });
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { error: 'An unexpected error occurred. Please try again.' },
       { status: 500 }
     );

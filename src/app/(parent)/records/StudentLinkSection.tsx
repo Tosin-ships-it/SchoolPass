@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { StudentLinkRequestRecord, ParentStudentLink } from '@/lib/auth';
+import { determineRecordsLinkState } from '@/lib/auth/dashboard';
 
 interface Props {
   initialRequests: StudentLinkRequestRecord[];
@@ -16,6 +17,11 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
   const [requests, setRequests] = useState<StudentLinkRequestRecord[]>(initialRequests);
   const [activeLinks, setActiveLinks] = useState<ParentStudentLink[]>(initialActiveLinks);
 
+  const { formTitle, hasPending, pendingRequests } = determineRecordsLinkState(
+    activeLinks.length,
+    requests
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -25,6 +31,30 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
     if (!trimmed) {
       setError('Please enter your child\'s Student Number.');
       document.getElementById('student-number-input')?.focus();
+      return;
+    }
+
+    // Client-side guard against duplicate pending request
+    const isAlreadyPending = pendingRequests.some(
+      r => r.studentNumber.toUpperCase() === trimmed
+    );
+    if (isAlreadyPending) {
+      setError('A link request for this student is already pending staff approval.');
+      setTimeout(() => {
+        document.getElementById('student-number-link-error')?.focus();
+      }, 50);
+      return;
+    }
+
+    // Client-side guard against duplicate active link
+    const isAlreadyLinked = activeLinks.some(
+      l => l.studentNumber && l.studentNumber.toUpperCase() === trimmed
+    );
+    if (isAlreadyLinked) {
+      setError('You are already linked to this student.');
+      setTimeout(() => {
+        document.getElementById('student-number-link-error')?.focus();
+      }, 50);
       return;
     }
 
@@ -132,6 +162,103 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
         </div>
       )}
 
+      {/* Submitted Requests Status displayed prominently */}
+      {requests.length > 0 && (
+        <div
+          style={{
+            backgroundColor: 'var(--color-roles-surface)',
+            border: '1px solid var(--color-roles-outline-color)',
+            boxShadow: 'var(--effect-soft-shadow)',
+            borderRadius: '8px',
+            padding: '24px',
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: 'var(--typography-title-medium-fontfamily)',
+              fontSize: 'var(--typography-title-medium-fontsize)',
+              fontWeight: 700,
+              color: 'var(--color-roles-on-surface)',
+              margin: '0 0 12px 0',
+            }}
+          >
+            Your Link Requests
+          </h2>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {requests.map(req => {
+              const isPending = req.status === 'PENDING';
+              const isApproved = req.status === 'APPROVED';
+              return (
+                <div
+                  key={req.id}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--color-roles-outline-variant)',
+                    backgroundColor: 'var(--color-roles-background)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--color-roles-on-surface)' }}>
+                      {req.studentName} ({req.studentNumber})
+                    </span>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '10px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor: isPending
+                          ? 'rgba(230, 81, 0, 0.1)'
+                          : isApproved
+                          ? 'rgba(46, 125, 50, 0.1)'
+                          : 'rgba(211, 47, 47, 0.1)',
+                        color: isPending ? '#E65100' : isApproved ? 'var(--color-roles-primary)' : 'var(--color-roles-error)',
+                      }}
+                    >
+                      {req.status}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '12px', color: 'var(--color-roles-on-surface-variant)' }}>
+                    Class: {req.studentClass} &bull; Requested on {new Date(req.createdAt).toLocaleDateString()}
+                  </div>
+
+                  {isPending && (
+                    <div
+                      style={{
+                        fontSize: '12px',
+                        color: '#E65100',
+                        fontWeight: 500,
+                        marginTop: '2px',
+                      }}
+                    >
+                      Awaiting school staff verification. Access to records will be granted once approved.
+                    </div>
+                  )}
+
+                  {req.rejectionReason && (
+                    <div
+                      style={{
+                        fontSize: '12px',
+                        color: 'var(--color-roles-error)',
+                        marginTop: '4px',
+                      }}
+                    >
+                      Note: {req.rejectionReason}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Link Student by Number Form */}
       <div
         style={{
@@ -151,7 +278,7 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
             margin: '0 0 8px 0',
           }}
         >
-          {activeLinks.length > 0 ? 'Link Another Child' : 'Link Your Child'}
+          {formTitle}
         </h2>
         <p
           style={{
@@ -161,8 +288,22 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
             margin: '0 0 16px 0',
           }}
         >
-          Enter the unique Student Number issued by the school (for example, <code>SP-2026-0001</code>). For security,
-          all linking requests are verified and approved by school staff.
+          {hasPending ? (
+            <>
+              You currently have a request pending staff verification. If you have another child enrolled at the
+              school, enter their Student Number below. All linking requests are verified and approved by school staff.
+            </>
+          ) : activeLinks.length > 0 ? (
+            <>
+              Enter the unique Student Number issued by the school for another child (for example,{' '}
+              <code>SP-2026-0002</code>). For security, all linking requests are verified and approved by school staff.
+            </>
+          ) : (
+            <>
+              Enter the unique Student Number issued by the school (for example, <code>SP-2026-0001</code>). For security,
+              all linking requests are verified and approved by school staff.
+            </>
+          )}
         </p>
 
         {error && (
@@ -265,90 +406,6 @@ export function StudentLinkSection({ initialRequests, initialActiveLinks }: Prop
           </button>
         </form>
       </div>
-
-      {/* Submitted Requests Status */}
-      {requests.length > 0 && (
-        <div
-          style={{
-            backgroundColor: 'var(--color-roles-surface)',
-            border: '1px solid var(--color-roles-outline-color)',
-            boxShadow: 'var(--effect-soft-shadow)',
-            borderRadius: '8px',
-            padding: '24px',
-          }}
-        >
-          <h3
-            style={{
-              fontFamily: 'var(--typography-title-medium-fontfamily)',
-              fontSize: 'var(--typography-title-medium-fontsize)',
-              fontWeight: 700,
-              color: 'var(--color-roles-on-surface)',
-              margin: '0 0 12px 0',
-            }}
-          >
-            Your Link Requests
-          </h3>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {requests.map(req => {
-              const isPending = req.status === 'PENDING';
-              const isApproved = req.status === 'APPROVED';
-              return (
-                <div
-                  key={req.id}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--color-roles-outline-variant)',
-                    backgroundColor: 'var(--color-roles-background)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600, color: 'var(--color-roles-on-surface)' }}>
-                      {req.studentName} ({req.studentNumber})
-                    </span>
-                    <span
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '10px',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        backgroundColor: isPending
-                          ? 'rgba(230, 81, 0, 0.1)'
-                          : isApproved
-                          ? 'rgba(46, 125, 50, 0.1)'
-                          : 'rgba(211, 47, 47, 0.1)',
-                        color: isPending ? '#E65100' : isApproved ? 'var(--color-roles-primary)' : 'var(--color-roles-error)',
-                      }}
-                    >
-                      {req.status}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: '12px', color: 'var(--color-roles-on-surface-variant)' }}>
-                    Class: {req.studentClass} &bull; Requested on {new Date(req.createdAt).toLocaleDateString()}
-                  </div>
-
-                  {req.rejectionReason && (
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        color: 'var(--color-roles-error)',
-                        marginTop: '4px',
-                      }}
-                    >
-                      Note: {req.rejectionReason}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

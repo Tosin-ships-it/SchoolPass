@@ -27,19 +27,22 @@ function ResetPasswordContent() {
       return;
     }
 
-    if (!password) {
+    const trimmedPassword = password.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+    if (!trimmedPassword) {
       setError('Please enter a new password.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password.length < 8) {
+    if (trimmedPassword.length < 8) {
       setError('Password must be at least 8 characters long.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (trimmedPassword !== trimmedConfirmPassword) {
       setError('Passwords do not match.');
       document.getElementById('confirmPassword')?.focus();
       return;
@@ -51,7 +54,7 @@ function ResetPasswordContent() {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim(), password }),
+        body: JSON.stringify({ token: token.trim(), password: trimmedPassword }),
       });
 
       const data = await res.json();

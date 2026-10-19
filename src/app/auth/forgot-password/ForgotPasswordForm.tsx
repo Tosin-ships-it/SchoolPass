@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { AuthCard } from '../components/AuthCard';
-import { FormField, PrimaryButton, AlertBox } from '../components/AuthFormElements';
+import { FormField, PrimaryButton, AlertBox, isDevStubsEnabled } from '../components/AuthFormElements';
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState('');
@@ -72,7 +72,7 @@ export function ForgotPasswordForm() {
             Password reset links expire in 1 hour. If you do not see the email, please check your spam folder.
           </p>
 
-          {devResetToken && (
+          {isDevStubsEnabled() && devResetToken && (
             <div
               style={{
                 marginTop: '12px',
@@ -164,7 +164,7 @@ export function ForgotPasswordForm() {
           required
           placeholder="e.g. parent@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
         />
 
         <div style={{ marginTop: '20px' }}>

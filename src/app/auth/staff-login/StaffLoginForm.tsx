@@ -22,7 +22,7 @@ export function StaffLoginForm() {
   const [error, setError] = useState<string | null>(null);
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+    const val = e.target.value.toLowerCase();
     setEmail(val);
     if (emailError) {
       if (isValidEmail(val)) {
@@ -32,14 +32,18 @@ export function StaffLoginForm() {
   };
 
   const handleEmailBlur = () => {
-    if (email.trim().length > 0 && !isValidEmail(email)) {
+    const normalized = email.toLowerCase();
+    if (normalized !== email) {
+      setEmail(normalized);
+    }
+    if (normalized.trim().length > 0 && !isValidEmail(normalized)) {
       setEmailError('Enter a valid email address');
-    } else if (isValidEmail(email)) {
+    } else if (isValidEmail(normalized)) {
       setEmailError(null);
     }
   };
 
-  const isButtonEnabled = email.trim().length > 0 && password.length > 0;
+  const isButtonEnabled = email.trim().length > 0 && password.trim().length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +52,7 @@ export function StaffLoginForm() {
     if (!isButtonEnabled) {
       if (!email.trim()) {
         document.getElementById('email')?.focus();
-      } else if (!password) {
+      } else if (!password.trim()) {
         document.getElementById('password')?.focus();
       }
       return;

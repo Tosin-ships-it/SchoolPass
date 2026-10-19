@@ -41,6 +41,9 @@ export function FormField({
         : inputProps.value !== undefined
         ? String(inputProps.value)
         : '';
+    if (type === 'email' && typeof e.target.value === 'string') {
+      e.target.value = e.target.value.toLowerCase();
+    }
     if (inputProps.required && (!val || !String(val).trim())) {
       setInternalError('This field is required');
     } else {
@@ -52,6 +55,9 @@ export function FormField({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (type === 'email' && typeof e.target.value === 'string') {
+      e.target.value = e.target.value.toLowerCase();
+    }
     if (e.target.value && String(e.target.value).trim()) {
       setInternalError(null);
     }
@@ -372,6 +378,17 @@ export function AlertBox({
   );
 }
 
+/**
+ * Checks whether development testing stubs and helpers are active.
+ * Strictly returns false in production, regardless of any environment flags.
+ */
+export function isDevStubsEnabled(): boolean {
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+  return process.env.NEXT_PUBLIC_ENABLE_DEV_STUBS === 'true';
+}
+
 export function DevCredentialsHint({
   role = 'parent',
   onSelect,
@@ -379,6 +396,10 @@ export function DevCredentialsHint({
   role?: 'parent' | 'staff';
   onSelect?: (email: string, pass: string) => void;
 }) {
+  if (!isDevStubsEnabled()) {
+    return null;
+  }
+
   return (
     <details
       style={{

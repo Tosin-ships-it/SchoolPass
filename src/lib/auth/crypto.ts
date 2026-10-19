@@ -111,12 +111,9 @@ export function verifySessionPayload(signedString: string, secret?: string): str
   }
 }
 
-/**
- * Minimum password length validation (RULES_CONFIG Rule 5: 8 chars).
- */
-export function validatePasswordStrength(password: string): { valid: boolean; reason?: string } {
-  if (!password || password.length < 8) {
-    return { valid: false, reason: 'Password must be at least 8 characters long.' };
-  }
-  return { valid: true };
-}
+export {
+  validatePasswordSync as validatePasswordStrength,
+  validatePasswordStrength as validatePasswordStrengthAsync,
+  isPwnedPassword,
+  isCommonPassword,
+} from './passwordValidation.ts';

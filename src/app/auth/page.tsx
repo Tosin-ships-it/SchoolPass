@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthCard } from './components/AuthCard';
-import { FormField, PrimaryButton, AlertBox, DevCredentialsHint } from './components/AuthFormElements';
+import { FormField, PrimaryButton, AlertBox, DevCredentialsHint, isDevStubsEnabled } from './components/AuthFormElements';
 
 export type AuthView =
   | 'login'
@@ -40,13 +40,16 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
     setErrorCode(null);
     setResendStatus(null);
 
-    if (!email.trim()) {
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail) {
       setError('Please enter your email address.');
       document.getElementById('email')?.focus();
       return;
     }
 
-    if (!password) {
+    if (!trimmedPassword) {
       setError('Please enter your password.');
       document.getElementById('password')?.focus();
       return;
@@ -58,7 +61,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: trimmedEmail, password: password }),
       });
 
       const data = await res.json();
@@ -219,7 +222,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
           required
           placeholder="e.g. parent@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
         />
 
         <FormField
@@ -308,19 +311,22 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
       return;
     }
 
-    if (!password) {
+    const trimmedPassword = password.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+    if (!trimmedPassword) {
       setError('Please enter a password.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password.length < 8) {
+    if (trimmedPassword.length < 8) {
       setError('Password must be at least 8 characters long.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (trimmedPassword !== trimmedConfirmPassword) {
       setError('Passwords do not match.');
       document.getElementById('confirmPassword')?.focus();
       return;
@@ -334,8 +340,8 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
-          email,
-          password,
+          email: email.trim(),
+          password: trimmedPassword,
           studentNumber: studentNumber.trim().toUpperCase(),
         }),
       });
@@ -602,7 +608,7 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
             </div>
           )}
 
-          {registeredToken && (
+          {isDevStubsEnabled() && registeredToken && (
             <div
               style={{
                 marginTop: '12px',
@@ -727,7 +733,7 @@ function ParentRegisterView({ onSwitchView }: ViewProps) {
           required
           placeholder="e.g. parent@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
         />
 
         <FormField
@@ -791,13 +797,16 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) {
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail) {
       setError('Please enter your staff email.');
       document.getElementById('email')?.focus();
       return;
     }
 
-    if (!password) {
+    if (!trimmedPassword) {
       setError('Please enter your password.');
       document.getElementById('password')?.focus();
       return;
@@ -809,7 +818,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
       const res = await fetch('/api/auth/staff-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: trimmedEmail, password: password }),
       });
 
       const data = await res.json();
@@ -882,7 +891,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
           required
           placeholder="e.g. staff@schoolpass.ng"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
         />
 
         <FormField
@@ -896,7 +905,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <DevCredentialsHint />
+        <DevCredentialsHint role="staff" />
 
         <div style={{ marginTop: '20px' }}>
           <PrimaryButton type="submit" loading={loading}>
@@ -978,7 +987,7 @@ function ForgotPasswordView({ onSwitchView }: ViewProps) {
             Password reset links expire in 1 hour. If you do not see the email, please check your spam folder.
           </p>
 
-          {devResetToken && (
+          {isDevStubsEnabled() && devResetToken && (
             <div
               style={{
                 marginTop: '12px',
@@ -1083,7 +1092,7 @@ function ForgotPasswordView({ onSwitchView }: ViewProps) {
           required
           placeholder="e.g. parent@example.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value.toLowerCase())}
         />
 
         <div style={{ marginTop: '20px' }}>
@@ -1117,19 +1126,22 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
       return;
     }
 
-    if (!password) {
+    const trimmedPassword = password.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+    if (!trimmedPassword) {
       setError('Please enter a new password.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password.length < 8) {
+    if (trimmedPassword.length < 8) {
       setError('Password must be at least 8 characters long.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (trimmedPassword !== trimmedConfirmPassword) {
       setError('Passwords do not match.');
       document.getElementById('confirmPassword')?.focus();
       return;
@@ -1141,7 +1153,7 @@ function ResetPasswordView({ onSwitchView, initialToken }: ViewProps) {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim(), password }),
+        body: JSON.stringify({ token: token.trim(), password: trimmedPassword }),
       });
 
       const data = await res.json();

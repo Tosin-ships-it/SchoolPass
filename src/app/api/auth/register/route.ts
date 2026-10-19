@@ -1,20 +1,45 @@
-import { NextResponse } from 'next/server';
-import { registerParent, retryRegistrationStudentLink } from '@/lib/auth';
+import {
+  registerParent,
+  retryRegistrationStudentLink,
+  isDevStubsEnabled,
+  extractClientIp,
+  checkIpRateLimit,
+  recordIpFailedAttempt,
+  createRateLimitResponse,
+} from '@/lib/auth';
+import { validateJsonBody } from '@/lib/auth/validation';
+import { parentRegisterSchema, retryRegistrationLinkSchema } from '@/lib/auth/schemas';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const ip = extractClientIp(request);
+    const rateCheck = checkIpRateLimit(ip, 'auth_register');
+    if (!rateCheck.allowed) {
+      return createRateLimitResponse(rateCheck.retryAfterSeconds);
+    }
 
     // Check if this is a retry-linking request
-    if (body.action === 'retry-link') {
-      const { email, token, studentNumber } = body;
-      if (!email || !token || !studentNumber) {
-        return NextResponse.json(
-          { error: 'Email, verification token, and student number are required.' },
-          { status: 400 }
-        );
+    let isRetryLink = false;
+    try {
+      const peekBody = await request.clone().json();
+      if (
+        peekBody &&
+        typeof peekBody === 'object' &&
+        (peekBody as Record<string, unknown>).action === 'retry-link'
+      ) {
+        isRetryLink = true;
+      }
+    } catch {
+      // Malformed JSON will be caught and safely returned by validateJsonBody below
+    }
+
+    if (isRetryLink) {
+      const validation = await validateJsonBody(request, retryRegistrationLinkSchema);
+      if (!validation.success) {
+        return validation.response;
       }
 
+      const { email, token, studentNumber } = validation.data;
       const retryResult = await retryRegistrationStudentLink({
         email,
         verificationToken: token,
@@ -22,13 +47,14 @@ export async function POST(request: Request) {
       });
 
       if (!retryResult.success) {
-        return NextResponse.json(
+        recordIpFailedAttempt(ip, 'auth_register');
+        return Response.json(
           { error: retryResult.error || 'Failed to submit student link request.' },
           { status: 400 }
         );
       }
 
-      return NextResponse.json({
+      return Response.json({
         success: true,
         message: 'Your link request has been submitted and is pending staff approval.',
         studentName: retryResult.studentName,
@@ -37,14 +63,12 @@ export async function POST(request: Request) {
       });
     }
 
-    const { name, email, password, studentNumber } = body;
-
-    if (!name || !email || !password || !studentNumber) {
-      return NextResponse.json(
-        { error: 'All fields are required, including your child\'s student number.' },
-        { status: 400 }
-      );
+    const validation = await validateJsonBody(request, parentRegisterSchema);
+    if (!validation.success) {
+      return validation.response;
     }
+
+    const { name, email, password, studentNumber } = validation.data;
 
     const result = await registerParent({
       name,
@@ -54,18 +78,19 @@ export async function POST(request: Request) {
     });
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+      recordIpFailedAttempt(ip, 'auth_register');
+      return Response.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
       message: 'Registration successful. Please verify your email address.',
-      verificationToken: result.verificationToken, // Provided in development for seamless testing
-      email: email.trim().toLowerCase(),
+      ...(isDevStubsEnabled() && { verificationToken: result.verificationToken }),
+      email,
       studentLink: result.studentLink,
     });
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { error: 'An unexpected error occurred. Please try again.' },
       { status: 500 }
     );
@@ -74,15 +99,18 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json();
-    const { email, token, studentNumber } = body;
-
-    if (!email || !token || !studentNumber) {
-      return NextResponse.json(
-        { error: 'Email, verification token, and student number are required.' },
-        { status: 400 }
-      );
+    const ip = extractClientIp(request);
+    const rateCheck = checkIpRateLimit(ip, 'auth_register');
+    if (!rateCheck.allowed) {
+      return createRateLimitResponse(rateCheck.retryAfterSeconds);
     }
+
+    const validation = await validateJsonBody(request, retryRegistrationLinkSchema);
+    if (!validation.success) {
+      return validation.response;
+    }
+
+    const { email, token, studentNumber } = validation.data;
 
     const result = await retryRegistrationStudentLink({
       email,
@@ -91,13 +119,14 @@ export async function PATCH(request: Request) {
     });
 
     if (!result.success) {
-      return NextResponse.json(
+      recordIpFailedAttempt(ip, 'auth_register');
+      return Response.json(
         { error: result.error || 'Failed to submit student link request.' },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
       message: 'Your link request has been submitted and is pending staff approval.',
       studentName: result.studentName,
@@ -105,7 +134,7 @@ export async function PATCH(request: Request) {
       requestId: result.requestId,
     });
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { error: 'An unexpected error occurred. Please try again.' },
       { status: 500 }
     );

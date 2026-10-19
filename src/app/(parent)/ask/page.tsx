@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getSession } from '@/lib/auth';
+import { getSession, getParentRequests, determineDashboardLinkState } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'Ask the School',
@@ -14,6 +14,9 @@ export default async function AskPage() {
   if (!session || session.role !== 'parent') {
     redirect('/auth/login?returnUrl=/ask');
   }
+
+  const requests = session.isLinked ? [] : await getParentRequests(session.userId);
+  const linkState = determineDashboardLinkState(Boolean(session.isLinked), requests);
 
   return (
     <div
@@ -121,8 +124,91 @@ export default async function AskPage() {
             Signed in as <strong>{session.user.email}</strong>.
           </p>
 
-          {/* Unlinked status notice according to Addendum §5.2 */}
-          {!session.isLinked ? (
+          {/* Dashboard guardian status banner (States A, B, and C) */}
+          {linkState.type === 'LINKED' ? (
+            <div
+              style={{
+                marginTop: '8px',
+                padding: '14px',
+                backgroundColor: 'var(--color-roles-surface-variant)',
+                border: '1px solid var(--color-roles-outline-color)',
+                fontSize: 'var(--typography-body-medium-fontsize)',
+                color: 'var(--color-roles-on-surface)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
+              }}
+            >
+              <div>
+                <strong>Status: Linked Guardian.</strong> You have active student links associated with your account.
+              </div>
+              <Link
+                href="/records"
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--color-roles-primary)',
+                  textDecoration: 'none',
+                }}
+              >
+                View Records &rarr;
+              </Link>
+            </div>
+          ) : linkState.type === 'PENDING_VERIFICATION' ? (
+            <div
+              style={{
+                marginTop: '8px',
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-primary-container)',
+                border: '1px solid var(--color-roles-outline-color)',
+                color: 'var(--color-roles-on-primary-container)',
+                fontSize: 'var(--typography-body-medium-fontsize)',
+                lineHeight: 'var(--typography-body-medium-lineheight)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div>
+                <strong>Status: Verification Pending.</strong>{' '}
+                {linkState.pendingRequests.length === 1 ? (
+                  <>
+                    You have submitted a request to link{' '}
+                    <strong>{linkState.pendingRequests[0].studentName}</strong> (
+                    {linkState.pendingRequests[0].studentNumber}). School staff must review and approve your request
+                    before you can access the child&apos;s records.
+                  </>
+                ) : (
+                  <>
+                    You have submitted requests to link{' '}
+                    {linkState.pendingRequests.map((req, idx) => (
+                      <span key={req.id}>
+                        {idx > 0 && (idx === linkState.pendingRequests.length - 1 ? ' and ' : ', ')}
+                        <strong>{req.studentName}</strong> ({req.studentNumber})
+                      </span>
+                    ))}
+                    . School staff must review and approve your requests before you can access student records.
+                  </>
+                )}
+              </div>
+              <div>
+                <Link
+                  href="/records"
+                  style={{
+                    display: 'inline-block',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: 'var(--color-roles-on-primary-container)',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  View Request Status in Records &rarr;
+                </Link>
+              </div>
+            </div>
+          ) : (
             <div
               style={{
                 marginTop: '8px',
@@ -155,37 +241,6 @@ export default async function AskPage() {
                   Link your child via Student Number &rarr;
                 </Link>
               </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                marginTop: '8px',
-                padding: '14px',
-                backgroundColor: 'var(--color-roles-surface-variant)',
-                border: '1px solid var(--color-roles-outline-color)',
-                fontSize: 'var(--typography-body-medium-fontsize)',
-                color: 'var(--color-roles-on-surface)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '8px',
-              }}
-            >
-              <div>
-                <strong>Status: Linked Guardian.</strong> You have active student links associated with your account.
-              </div>
-              <Link
-                href="/records"
-                style={{
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: 'var(--color-roles-primary)',
-                  textDecoration: 'none',
-                }}
-              >
-                View Records &rarr;
-              </Link>
             </div>
           )}
         </div>
@@ -263,8 +318,10 @@ export default async function AskPage() {
                 marginBottom: '12px',
               }}
             >
-              {session.isLinked
+              {linkState.type === 'LINKED'
                 ? "View your child's verified attendance figures, fee balance, and enrollment."
+                : linkState.type === 'PENDING_VERIFICATION'
+                ? 'Your student link request is pending staff verification. Records will be available once approved.'
                 : 'Link your child via Student Number to view attendance and records.'}
             </p>
             <Link
@@ -276,7 +333,11 @@ export default async function AskPage() {
                 textDecoration: 'none',
               }}
             >
-              {session.isLinked ? 'Access Records &rarr;' : 'Link Child &rarr;'}
+              {linkState.type === 'LINKED'
+                ? 'Access Records &rarr;'
+                : linkState.type === 'PENDING_VERIFICATION'
+                ? 'View Request Status &rarr;'
+                : 'Link Child &rarr;'}
             </Link>
           </div>
         </div>

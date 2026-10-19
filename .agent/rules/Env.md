@@ -46,3 +46,4 @@ The user supplied the environment variable names in `.env.example`.
 - `NEXT_PUBLIC_APP_URL`: Base URL of the deployment application.
 - `RESEND_API_KEY`: API key for Resend email transmission.
 - `RESEND_FROM`: (Optional) Custom sender address for Resend emails (defaults to SchoolPass <onboarding@resend.dev>).
+- `NEXT_PUBLIC_ENABLE_DEV_STUBS`: (Optional, local development only) Set to "true" to opt into development testing stubs and credential helpers. Ignored and disabled in production.

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { AuthCard } from '../components/AuthCard';
-import { FormField, PrimaryButton, AlertBox } from '../components/AuthFormElements';
+import { FormField, PrimaryButton, AlertBox, isDevStubsEnabled } from '../components/AuthFormElements';
 
 function validateFullName(value: string): string | null {
   const trimmed = value.trim();
@@ -32,11 +32,11 @@ function isValidEmail(value: string): boolean {
 const COMMON_PASSWORDS = new Set([
   'password', 'password1', 'password12', 'password123', 'password!', 'password@1', 'password123!',
   '12345678', '123456789', '12345678!', '12345678@',
-  'qwerty123', 'qwerty!', 'qwerty@123',
+  'qwerty123', 'qwerty!', 'qwerty@123', 'qwerty123!',
   'admin123', 'admin@123', 'admin123!',
-  'welcome1', 'welcome!', 'welcome@1', 'welcome123', 'welcome@123',
-  'letmein1', 'letmein!', 'letmein@123',
-  'schoolpass', 'schoolpass1', 'schoolpass!', 'schoolpass@123',
+  'welcome1', 'welcome!', 'welcome@1', 'welcome123', 'welcome@123', 'welcome123!',
+  'letmein1', 'letmein!', 'letmein@123', 'letmein123!',
+  'schoolpass', 'schoolpass1', 'schoolpass!', 'schoolpass@123', 'schoolpass123!',
   'iloveyou', 'iloveyou!', 'iloveyou123',
   'pass@word', 'pass@word1', 'p@ssword', 'p@ssw0rd', 'p@ssword1', 'p@ssword!',
   'sunshine!', 'princess!', 'football!', 'monkey123!',
@@ -100,27 +100,29 @@ async function isPwnedPassword(password: string): Promise<boolean> {
 }
 
 function validatePasswordSync(value: string, isSubmit = false): string | null {
-  if (!value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
     return isSubmit ? 'Enter a password.' : 'Enter a password.';
   }
-  if (value.length < 8) {
+  if (trimmed.length < 8) {
     return 'Password must be at least 8 characters.';
   }
-  if (!/[^A-Za-z0-9]/.test(value)) {
+  if (!/[^A-Za-z0-9]/.test(trimmed)) {
     return 'Include at least one special character.';
   }
-  if (isCommonPassword(value)) {
+  if (isCommonPassword(trimmed)) {
     return 'Choose a stronger password.';
   }
   return null;
 }
 
 async function validatePassword(value: string, isSubmit = false): Promise<string | null> {
-  const syncErr = validatePasswordSync(value, isSubmit);
+  const trimmed = value.trim();
+  const syncErr = validatePasswordSync(trimmed, isSubmit);
   if (syncErr) {
     return syncErr;
   }
-  const compromised = await isPwnedPassword(value);
+  const compromised = await isPwnedPassword(trimmed);
   if (compromised) {
     return 'Choose a stronger password.';
   }
@@ -405,7 +407,7 @@ export function ParentRegisterForm() {
   };
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+    const val = e.target.value.toLowerCase();
     setEmail(val);
     if (isValidEmail(val)) {
       setEmailError(null);
@@ -415,7 +417,11 @@ export function ParentRegisterForm() {
   };
 
   const handleEmailBlur = () => {
-    if (!isValidEmail(email)) {
+    const normalized = email.toLowerCase();
+    if (normalized !== email) {
+      setEmail(normalized);
+    }
+    if (!isValidEmail(normalized)) {
       setEmailError('Enter a valid email address');
     }
   };
@@ -509,15 +515,16 @@ export function ParentRegisterForm() {
   };
 
   const handlePasswordBlur = async () => {
-    if (!password) {
+    const trimmed = password.trim();
+    if (!trimmed) {
       return;
     }
-    const syncErr = validatePasswordSync(password);
+    const syncErr = validatePasswordSync(trimmed);
     if (syncErr) {
       setPasswordError(syncErr);
       return;
     }
-    const compromised = await isPwnedPassword(password);
+    const compromised = await isPwnedPassword(trimmed);
     if (compromised) {
       setPasswordError('Choose a stronger password.');
     } else {
@@ -530,7 +537,7 @@ export function ParentRegisterForm() {
     setConfirmPassword(val);
 
     if (confirmPasswordError) {
-      if (val === password) {
+      if (val.trim() === password.trim()) {
         setConfirmPasswordError(null);
       } else {
         setConfirmPasswordError('Passwords do not match.');
@@ -540,7 +547,7 @@ export function ParentRegisterForm() {
 
   const handleConfirmPasswordBlur = () => {
     setConfirmPasswordTouched(true);
-    if (confirmPassword !== password) {
+    if (confirmPassword.trim() !== password.trim()) {
       setConfirmPasswordError('Passwords do not match.');
     } else {
       setConfirmPasswordError(null);
@@ -570,20 +577,23 @@ export function ParentRegisterForm() {
       return;
     }
 
-    if (!password) {
+    const trimmedPassword = password.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+    if (!trimmedPassword) {
       setPasswordError('Enter a password.');
       document.getElementById('password')?.focus();
       return;
     }
 
-    const passwordErr = await validatePassword(password, true);
+    const passwordErr = await validatePassword(trimmedPassword, true);
     if (passwordErr) {
       setPasswordError(passwordErr);
       document.getElementById('password')?.focus();
       return;
     }
 
-    if (confirmPassword !== password) {
+    if (trimmedConfirmPassword !== trimmedPassword) {
       setConfirmPasswordTouched(true);
       setConfirmPasswordError('Passwords do not match.');
       document.getElementById('confirmPassword')?.focus();
@@ -605,7 +615,7 @@ export function ParentRegisterForm() {
         body: JSON.stringify({
           name: name.trim(),
           email,
-          password,
+          password: trimmedPassword,
           studentNumber: studentNumber.trim().toUpperCase(),
         }),
       });
@@ -844,7 +854,7 @@ export function ParentRegisterForm() {
             </div>
           )}
 
-          {registeredToken && (
+          {isDevStubsEnabled() && registeredToken && (
             <div
               style={{
                 marginTop: '4px',

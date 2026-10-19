@@ -8,7 +8,14 @@ import {
   signSessionPayload,
   verifySessionPayload,
   validatePasswordStrength,
+  validatePasswordStrengthAsync,
 } from './crypto';
+import {
+  checkIpRateLimit,
+  recordIpFailedAttempt,
+  resetIpRateLimit,
+  extractClientIp,
+} from './rateLimit';
 import {
   findParentByEmail,
   findParentById,
@@ -53,7 +60,19 @@ import {
   sendWelcomeEmail,
   buildWelcomeEmailHtml,
   buildWelcomeEmailText,
+  triggerVerificationEmail,
+  sendVerificationEmail,
+  buildVerificationEmailHtml,
+  buildVerificationEmailText,
+  triggerPasswordResetEmail,
+  sendPasswordResetEmail,
+  buildPasswordResetEmailHtml,
+  buildPasswordResetEmailText,
+  getAppBaseUrl,
+  isDevStubsEnabled,
   type SendWelcomeEmailParams,
+  type SendVerificationEmailParams,
+  type SendPasswordResetEmailParams,
   type SendEmailResult,
 } from './email';
 
@@ -165,6 +184,7 @@ export async function registerParent(params: {
 }> {
   const email = params.email.trim().toLowerCase();
   const name = params.name.trim();
+  const password = params.password.trim();
 
   if (!name || name.length < 2) {
     return { success: false, error: 'Please enter your full name.' };
@@ -175,7 +195,7 @@ export async function registerParent(params: {
     return { success: false, error: 'Please enter a valid email address.' };
   }
 
-  const strengthCheck = validatePasswordStrength(params.password);
+  const strengthCheck = await validatePasswordStrengthAsync(password);
   if (!strengthCheck.valid) {
     return { success: false, error: strengthCheck.reason };
   }
@@ -190,7 +210,7 @@ export async function registerParent(params: {
     };
   }
 
-  const passwordHash = await hashPassword(params.password);
+  const passwordHash = await hashPassword(password);
   const parent = await createParent({
     name,
     email,
@@ -216,6 +236,15 @@ export async function registerParent(params: {
   // Asynchronously dispatch welcome email in the background without delaying registration response
   triggerWelcomeEmail({
     to: email,
+    name: parent.name,
+    userId: parent.id,
+    actorType: 'parent',
+  });
+
+  // Asynchronously dispatch email verification link
+  triggerVerificationEmail({
+    to: email,
+    token: rawToken,
     name: parent.name,
     userId: parent.id,
     actorType: 'parent',
@@ -343,6 +372,15 @@ export async function resendVerificationEmail(email: string): Promise<{ success:
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await saveVerificationToken(normalizedEmail, tokenHash, expiresAt);
 
+  // Dispatch fresh verification link via email
+  triggerVerificationEmail({
+    to: normalizedEmail,
+    token: rawToken,
+    name: parent.name,
+    userId: parent.id,
+    actorType: 'parent',
+  });
+
   return { success: true, verificationToken: rawToken };
 }
 
@@ -355,9 +393,9 @@ export async function loginParent(
   ip = 'unknown'
 ): Promise<{ success: boolean; error?: string; errorCode?: string }> {
   const email = emailInput.trim().toLowerCase();
-  const rateLimitKey = `login_parent_${ip}_${email}`;
+  const trimmedPassword = passwordInput.trim();
 
-  const rateCheck = await checkRateLimit(rateLimitKey);
+  const rateCheck = checkIpRateLimit(ip, 'parent_auth');
   if (!rateCheck.allowed) {
     return {
       success: false,
@@ -368,7 +406,7 @@ export async function loginParent(
 
   const parent = await findParentByEmail(email);
   if (!parent) {
-    await recordFailedAttempt(rateLimitKey);
+    recordIpFailedAttempt(ip, 'parent_auth');
     logEvent({
       level: 'warn',
       event: 'parent_login_failed',
@@ -378,9 +416,22 @@ export async function loginParent(
     return { success: false, error: 'Invalid email or password.' };
   }
 
-  const passwordValid = await verifyPassword(passwordInput, parent.passwordHash);
+  // Safe Two-Stage Verification:
+  // 1. Primary check against trimmed password
+  let passwordValid = await verifyPassword(trimmedPassword, parent.passwordHash);
+  let migratedTrimmed = false;
+
+  // 2. Fallback check against raw untrimmed password if input had whitespace and primary check failed
+  if (!passwordValid && passwordInput !== trimmedPassword) {
+    const rawMatches = await verifyPassword(passwordInput, parent.passwordHash);
+    if (rawMatches) {
+      passwordValid = true;
+      migratedTrimmed = true;
+    }
+  }
+
   if (!passwordValid) {
-    await recordFailedAttempt(rateLimitKey);
+    recordIpFailedAttempt(ip, 'parent_auth');
     logEvent({
       level: 'warn',
       event: 'parent_login_failed',
@@ -391,6 +442,23 @@ export async function loginParent(
     return { success: false, error: 'Invalid email or password.' };
   }
 
+  // If user authenticated via untrimmed fallback, seamlessly migrate their stored hash to the trimmed password
+  if (migratedTrimmed) {
+    try {
+      const newHash = await hashPassword(trimmedPassword);
+      await updateParent(parent.id, { passwordHash: newHash });
+      logEvent({
+        level: 'info',
+        event: 'parent_password_trimmed_migrated',
+        actorType: 'parent',
+        actorId: parent.id,
+        outcome: 'success',
+      });
+    } catch {
+      // Continue login even if background rehash update fails
+    }
+  }
+
   if (!parent.emailVerifiedAt) {
     return {
       success: false,
@@ -399,7 +467,8 @@ export async function loginParent(
     };
   }
 
-  await resetRateLimit(rateLimitKey);
+  // Under Natural Expiry policy, successful logins do not wipe the shared IP counter,
+  // preventing attackers on shared NATs from resetting the failure threshold.
 
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
   const session = await createSessionRecord(parent.id, 'parent', expiresAt);
@@ -424,21 +493,22 @@ export async function loginStaff(
   emailInput: string,
   passwordInput: string,
   ip = 'unknown'
-): Promise<{ success: boolean; error?: string; role?: 'STAFF' | 'ADMIN' }> {
+): Promise<{ success: boolean; error?: string; errorCode?: string; role?: 'STAFF' | 'ADMIN' }> {
   const email = emailInput.trim().toLowerCase();
-  const rateLimitKey = `login_staff_${ip}_${email}`;
+  const trimmedPassword = passwordInput.trim();
 
-  const rateCheck = await checkRateLimit(rateLimitKey);
+  const rateCheck = checkIpRateLimit(ip, 'staff_auth');
   if (!rateCheck.allowed) {
     return {
       success: false,
       error: `Too many failed sign-in attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+      errorCode: 'RATE_LIMITED',
     };
   }
 
   const staff = await findStaffByEmail(email);
   if (!staff) {
-    await recordFailedAttempt(rateLimitKey);
+    recordIpFailedAttempt(ip, 'staff_auth');
     logEvent({
       level: 'warn',
       event: 'staff_login_failed',
@@ -448,9 +518,22 @@ export async function loginStaff(
     return { success: false, error: 'Invalid staff email or password.' };
   }
 
-  const passwordValid = await verifyPassword(passwordInput, staff.passwordHash);
+  // Safe Two-Stage Verification:
+  // 1. Primary check against trimmed password
+  let passwordValid = await verifyPassword(trimmedPassword, staff.passwordHash);
+  let migratedTrimmed = false;
+
+  // 2. Fallback check against raw untrimmed password if input had whitespace and primary check failed
+  if (!passwordValid && passwordInput !== trimmedPassword) {
+    const rawMatches = await verifyPassword(passwordInput, staff.passwordHash);
+    if (rawMatches) {
+      passwordValid = true;
+      migratedTrimmed = true;
+    }
+  }
+
   if (!passwordValid) {
-    await recordFailedAttempt(rateLimitKey);
+    recordIpFailedAttempt(ip, 'staff_auth');
     logEvent({
       level: 'warn',
       event: 'staff_login_failed',
@@ -461,7 +544,24 @@ export async function loginStaff(
     return { success: false, error: 'Invalid staff email or password.' };
   }
 
-  await resetRateLimit(rateLimitKey);
+  // If staff authenticated via untrimmed fallback, seamlessly migrate their stored hash to the trimmed password
+  if (migratedTrimmed) {
+    try {
+      const newHash = await hashPassword(trimmedPassword);
+      await updateStaffPassword(staff.id, newHash);
+      logEvent({
+        level: 'info',
+        event: 'staff_password_trimmed_migrated',
+        actorType: 'staff',
+        actorId: staff.id,
+        outcome: 'success',
+      });
+    } catch {
+      // Continue login even if background rehash update fails
+    }
+  }
+
+  // Under Natural Expiry policy, successful logins do not wipe the shared IP counter.
 
   const role = staff.role.toLowerCase() as 'staff' | 'admin';
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
@@ -509,6 +609,15 @@ export async function requestPasswordReset(emailInput: string): Promise<{
     outcome: 'success',
   });
 
+  // Dispatch password reset link via email
+  triggerPasswordResetEmail({
+    to: email,
+    token: rawToken,
+    name: parent ? parent.name : staff!.name,
+    userId: parent ? parent.id : staff!.id,
+    actorType: parent ? 'parent' : 'staff',
+  });
+
   return { success: true, resetToken: rawToken };
 }
 
@@ -517,13 +626,14 @@ export async function requestPasswordReset(emailInput: string): Promise<{
  */
 export async function resetPassword(
   token: string,
-  newPassword: string
+  newPasswordInput: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!token || token.trim().length === 0) {
     return { success: false, error: 'Invalid or missing reset token.' };
   }
 
-  const strengthCheck = validatePasswordStrength(newPassword);
+  const newPassword = newPasswordInput.trim();
+  const strengthCheck = await validatePasswordStrengthAsync(newPassword);
   if (!strengthCheck.valid) {
     return { success: false, error: strengthCheck.reason };
   }
@@ -796,9 +906,10 @@ export async function createStaffAccount(params: {
     return { success: false, error: 'Please enter a valid email address.' };
   }
 
-  const strengthCheck = validatePasswordStrength(params.password);
+  const trimmedPassword = params.password.trim();
+  const strengthCheck = await validatePasswordStrengthAsync(trimmedPassword);
   if (!strengthCheck.valid) {
-    return { success: false, error: strengthCheck.reason };
+    return { success: false, error: strengthCheck.reason || strengthCheck.error };
   }
 
   const existing = await findStaffByEmail(email);
@@ -806,7 +917,7 @@ export async function createStaffAccount(params: {
     return { success: false, error: 'A staff account with this email address already exists.' };
   }
 
-  const passwordHash = await hashPassword(params.password);
+  const passwordHash = await hashPassword(trimmedPassword);
   const staff = await createStaffUser({
     name,
     email,
@@ -842,6 +953,16 @@ export {
   sendWelcomeEmail,
   buildWelcomeEmailHtml,
   buildWelcomeEmailText,
+  triggerVerificationEmail,
+  sendVerificationEmail,
+  buildVerificationEmailHtml,
+  buildVerificationEmailText,
+  triggerPasswordResetEmail,
+  sendPasswordResetEmail,
+  buildPasswordResetEmailHtml,
+  buildPasswordResetEmailText,
+  getAppBaseUrl,
+  isDevStubsEnabled,
 };
 
 export type {
@@ -849,8 +970,27 @@ export type {
   StudentLinkRequestRecord,
   LinkRequestStatus,
   SendWelcomeEmailParams,
+  SendVerificationEmailParams,
+  SendPasswordResetEmailParams,
   SendEmailResult,
 };
+
+export { determineDashboardLinkState, type DashboardLinkState } from './dashboard';
+export {
+  checkIpRateLimit,
+  recordIpFailedAttempt,
+  resetIpRateLimit,
+  extractClientIp,
+  createRateLimitResponse,
+  isValidIp,
+} from './rateLimit';
+export {
+  validatePasswordStrength,
+  validatePasswordStrengthAsync,
+  isPwnedPassword,
+  isCommonPassword,
+} from './passwordValidation';
+
 
 
 
