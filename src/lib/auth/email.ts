@@ -1,5 +1,7 @@
 import 'server-only';
 import { after } from 'next/server.js';
+import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 import { logEvent } from '../logging/index.ts';
 
 export interface SendWelcomeEmailParams {
@@ -29,6 +31,253 @@ export interface SendEmailResult {
   success: boolean;
   id?: string;
   error?: string;
+}
+
+export type EmailTransportType = 'resend' | 'smtp';
+
+/**
+ * Returns active email transport provider.
+ * Defaults to 'resend' for backward compatibility unless EMAIL_TRANSPORT is explicitly 'smtp'.
+ */
+export function getEmailTransport(): EmailTransportType {
+  const envTransport = process.env.EMAIL_TRANSPORT?.trim().toLowerCase();
+  if (envTransport === 'smtp') {
+    return 'smtp';
+  }
+  return 'resend';
+}
+
+let customSmtpTransporter: Transporter | null = null;
+
+/**
+ * Test helper to inject a mock or custom Nodemailer transporter without performing network calls.
+ * Pass null to reset to default transporter instantiation.
+ */
+export function _setSmtpTransporterForTesting(transporter: Transporter | null): void {
+  customSmtpTransporter = transporter;
+}
+
+export function getSmtpTransporter(): Transporter {
+  if (customSmtpTransporter) {
+    return customSmtpTransporter;
+  }
+
+  const host = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com';
+  const port = parseInt(process.env.SMTP_PORT?.trim() || '465', 10);
+  const secure = process.env.SMTP_SECURE?.trim() !== 'false';
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass,
+    },
+  });
+}
+
+function sanitizeError(errorMsg: string, token?: string): string {
+  let sanitized = errorMsg;
+  const smtpPass = process.env.SMTP_PASS?.trim();
+  if (smtpPass) {
+    sanitized = sanitized.replaceAll(smtpPass, '***');
+  }
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  if (resendKey) {
+    sanitized = sanitized.replaceAll(resendKey, '***');
+  }
+  if (token && token.trim()) {
+    sanitized = sanitized.replaceAll(token.trim(), '***');
+  }
+  return sanitized;
+}
+
+interface SendMailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  actorType?: 'parent' | 'staff' | 'admin';
+  userId?: string;
+  eventPrefix: 'welcome_email' | 'verification_email' | 'password_reset_email';
+  tokenToSanitize?: string;
+}
+
+async function dispatchEmail(options: SendMailOptions): Promise<SendEmailResult> {
+  const normalizedTo = options.to.trim().toLowerCase();
+
+  // Automated test safeguard: never send real emails during automated test runs
+  if (process.env.NODE_ENV === 'test' || process.env.RESEND_MOCK === 'true' || process.env.EMAIL_MOCK === 'true') {
+    return {
+      success: true,
+      id: 'test_mock_email_id',
+    };
+  }
+
+  const transport = getEmailTransport();
+
+  if (transport === 'smtp') {
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASS?.trim();
+
+    // If no custom test transporter is set, require SMTP_USER and SMTP_PASS
+    if (!customSmtpTransporter && (!user || !pass)) {
+      logEvent({
+        level: 'warn',
+        event: `${options.eventPrefix}_skipped`,
+        actorType: options.actorType || 'parent',
+        actorId: options.userId,
+        outcome: 'failure',
+        details: { reason: 'SMTP_USER or SMTP_PASS is not configured in environment' },
+      });
+      return {
+        success: false,
+        error: 'SMTP_USER or SMTP_PASS is not configured in environment',
+      };
+    }
+
+    const fromAddress =
+      process.env.SMTP_FROM?.trim() ||
+      (user ? `SchoolPass <${user}>` : 'SchoolPass <no-reply@schoolpass.ng>');
+
+    try {
+      const transporter = getSmtpTransporter();
+      const info = await transporter.sendMail({
+        from: fromAddress,
+        to: [normalizedTo],
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      });
+
+      logEvent({
+        level: 'info',
+        event: `${options.eventPrefix}_sent`,
+        actorType: options.actorType || 'parent',
+        actorId: options.userId,
+        outcome: 'success',
+        details: { messageId: info.messageId },
+      });
+
+      return {
+        success: true,
+        id: info.messageId,
+      };
+    } catch (err: unknown) {
+      const rawError = err instanceof Error ? err.message : String(err);
+      const sanitized = sanitizeError(rawError, options.tokenToSanitize);
+
+      logEvent({
+        level: 'error',
+        event: `${options.eventPrefix}_error`,
+        actorType: options.actorType || 'parent',
+        actorId: options.userId,
+        outcome: 'failure',
+        details: { error: sanitized },
+      });
+
+      return {
+        success: false,
+        error: sanitized,
+      };
+    }
+  }
+
+  // Fallback / default: Resend REST API
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+
+  if (!apiKey) {
+    logEvent({
+      level: 'warn',
+      event: `${options.eventPrefix}_skipped`,
+      actorType: options.actorType || 'parent',
+      actorId: options.userId,
+      outcome: 'failure',
+      details: { reason: 'RESEND_API_KEY is not configured in environment' },
+    });
+    return {
+      success: false,
+      error: 'RESEND_API_KEY is not configured in environment',
+    };
+  }
+
+  const fromAddress =
+    process.env.RESEND_FROM?.trim() ||
+    process.env.EMAIL_FROM?.trim() ||
+    'SchoolPass <onboarding@resend.dev>';
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: [normalizedTo],
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      }),
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const rawMessage =
+        data?.message || data?.error || `Resend API returned status ${response.status}`;
+      const sanitized = sanitizeError(rawMessage, options.tokenToSanitize);
+
+      logEvent({
+        level: 'error',
+        event: `${options.eventPrefix}_failed`,
+        actorType: options.actorType || 'parent',
+        actorId: options.userId,
+        outcome: 'failure',
+        details: { status: response.status, message: sanitized },
+      });
+
+      return {
+        success: false,
+        error: sanitized,
+      };
+    }
+
+    logEvent({
+      level: 'info',
+      event: `${options.eventPrefix}_sent`,
+      actorType: options.actorType || 'parent',
+      actorId: options.userId,
+      outcome: 'success',
+      details: { messageId: data?.id },
+    });
+
+    return {
+      success: true,
+      id: data?.id,
+    };
+  } catch (err: unknown) {
+    const rawError = err instanceof Error ? err.message : String(err);
+    const sanitized = sanitizeError(rawError, options.tokenToSanitize);
+
+    logEvent({
+      level: 'error',
+      event: `${options.eventPrefix}_error`,
+      actorType: options.actorType || 'parent',
+      actorId: options.userId,
+      outcome: 'failure',
+      details: { error: sanitized },
+    });
+
+    return {
+      success: false,
+      error: sanitized,
+    };
+  }
 }
 
 /**
@@ -212,11 +461,10 @@ This is an automated notification from SchoolPass.`;
 }
 
 /**
- * Sends the welcome email using Resend API.
+ * Sends the welcome email using active transport (Resend or Gmail SMTP).
  * Returns a result object without throwing.
  */
 export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<SendEmailResult> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
   const normalizedTo = params.to.trim().toLowerCase();
 
   const dedupeKey = `welcome:${normalizedTo}`;
@@ -228,104 +476,24 @@ export async function sendWelcomeEmail(params: SendWelcomeEmailParams): Promise<
     };
   }
 
-  // Automated test safeguard: never send real emails during automated test runs
-  if (process.env.NODE_ENV === 'test' || process.env.RESEND_MOCK === 'true') {
-    return {
-      success: true,
-      id: 'test_mock_email_id',
-    };
-  }
-
-  if (!apiKey) {
-    logEvent({
-      level: 'warn',
-      event: 'welcome_email_skipped',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { reason: 'RESEND_API_KEY is not configured in environment' },
-    });
-    return {
-      success: false,
-      error: 'RESEND_API_KEY is not configured in environment',
-    };
-  }
-
-  const fromAddress =
-    process.env.RESEND_FROM?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    'SchoolPass <onboarding@resend.dev>';
-
   const htmlContent = buildWelcomeEmailHtml(params.name);
   const textContent = buildWelcomeEmailText(params.name);
 
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromAddress,
-        to: [normalizedTo],
-        subject: 'Welcome to SchoolPass!',
-        html: htmlContent,
-        text: textContent,
-      }),
-    });
+  const result = await dispatchEmail({
+    to: normalizedTo,
+    subject: 'Welcome to SchoolPass!',
+    html: htmlContent,
+    text: textContent,
+    actorType: params.actorType,
+    userId: params.userId,
+    eventPrefix: 'welcome_email',
+  });
 
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const errorMessage =
-        data?.message || data?.error || `Resend API returned status ${response.status}`;
-
-      logEvent({
-        level: 'error',
-        event: 'welcome_email_failed',
-        actorType: params.actorType || 'parent',
-        actorId: params.userId,
-        outcome: 'failure',
-        details: { status: response.status, message: errorMessage },
-      });
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-
+  if (result.success && result.id) {
     markRecentlySent(dedupeKey);
-
-    logEvent({
-      level: 'info',
-      event: 'welcome_email_sent',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'success',
-      details: { messageId: data?.id },
-    });
-
-    return {
-      success: true,
-      id: data?.id,
-    };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logEvent({
-      level: 'error',
-      event: 'welcome_email_error',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { error: errorMsg },
-    });
-    return {
-      success: false,
-      error: errorMsg,
-    };
   }
+
+  return result;
 }
 
 /**
@@ -499,108 +667,23 @@ This is an automated notification from SchoolPass.`;
 }
 
 /**
- * Sends parent email verification link using Resend API.
+ * Sends parent email verification link using active transport (Resend or Gmail SMTP).
  */
 export async function sendVerificationEmail(params: SendVerificationEmailParams): Promise<SendEmailResult> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
   const normalizedTo = params.to.trim().toLowerCase();
-
-  // Automated test safeguard
-  if (process.env.NODE_ENV === 'test' || process.env.RESEND_MOCK === 'true') {
-    return {
-      success: true,
-      id: 'test_mock_email_id',
-    };
-  }
-
-  if (!apiKey) {
-    logEvent({
-      level: 'warn',
-      event: 'verification_email_skipped',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { reason: 'RESEND_API_KEY is not configured in environment' },
-    });
-    return {
-      success: false,
-      error: 'RESEND_API_KEY is not configured in environment',
-    };
-  }
-
-  const fromAddress =
-    process.env.RESEND_FROM?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    'SchoolPass <onboarding@resend.dev>';
-
   const htmlContent = buildVerificationEmailHtml(params.token, params.name);
   const textContent = buildVerificationEmailText(params.token, params.name);
 
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromAddress,
-        to: [normalizedTo],
-        subject: 'Confirm your SchoolPass email address',
-        html: htmlContent,
-        text: textContent,
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const errorMessage =
-        data?.message || data?.error || `Resend API returned status ${response.status}`;
-
-      logEvent({
-        level: 'error',
-        event: 'verification_email_failed',
-        actorType: params.actorType || 'parent',
-        actorId: params.userId,
-        outcome: 'failure',
-        details: { status: response.status, message: errorMessage },
-      });
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-
-    logEvent({
-      level: 'info',
-      event: 'verification_email_sent',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'success',
-      details: { messageId: data?.id },
-    });
-
-    return {
-      success: true,
-      id: data?.id,
-    };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logEvent({
-      level: 'error',
-      event: 'verification_email_error',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { error: errorMsg },
-    });
-    return {
-      success: false,
-      error: errorMsg,
-    };
-  }
+  return dispatchEmail({
+    to: normalizedTo,
+    subject: 'Confirm your SchoolPass email address',
+    html: htmlContent,
+    text: textContent,
+    actorType: params.actorType,
+    userId: params.userId,
+    eventPrefix: 'verification_email',
+    tokenToSanitize: params.token,
+  });
 }
 
 /**
@@ -771,108 +854,23 @@ This is an automated notification from SchoolPass.`;
 }
 
 /**
- * Sends password reset link using Resend API.
+ * Sends password reset email using active transport (Resend or Gmail SMTP).
  */
 export async function sendPasswordResetEmail(params: SendPasswordResetEmailParams): Promise<SendEmailResult> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
   const normalizedTo = params.to.trim().toLowerCase();
-
-  // Automated test safeguard
-  if (process.env.NODE_ENV === 'test' || process.env.RESEND_MOCK === 'true') {
-    return {
-      success: true,
-      id: 'test_mock_email_id',
-    };
-  }
-
-  if (!apiKey) {
-    logEvent({
-      level: 'warn',
-      event: 'password_reset_email_skipped',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { reason: 'RESEND_API_KEY is not configured in environment' },
-    });
-    return {
-      success: false,
-      error: 'RESEND_API_KEY is not configured in environment',
-    };
-  }
-
-  const fromAddress =
-    process.env.RESEND_FROM?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    'SchoolPass <onboarding@resend.dev>';
-
   const htmlContent = buildPasswordResetEmailHtml(params.token, params.name);
   const textContent = buildPasswordResetEmailText(params.token, params.name);
 
-  try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromAddress,
-        to: [normalizedTo],
-        subject: 'Reset your SchoolPass password',
-        html: htmlContent,
-        text: textContent,
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      const errorMessage =
-        data?.message || data?.error || `Resend API returned status ${response.status}`;
-
-      logEvent({
-        level: 'error',
-        event: 'password_reset_email_failed',
-        actorType: params.actorType || 'parent',
-        actorId: params.userId,
-        outcome: 'failure',
-        details: { status: response.status, message: errorMessage },
-      });
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-
-    logEvent({
-      level: 'info',
-      event: 'password_reset_email_sent',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'success',
-      details: { messageId: data?.id },
-    });
-
-    return {
-      success: true,
-      id: data?.id,
-    };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logEvent({
-      level: 'error',
-      event: 'password_reset_email_error',
-      actorType: params.actorType || 'parent',
-      actorId: params.userId,
-      outcome: 'failure',
-      details: { error: errorMsg },
-    });
-    return {
-      success: false,
-      error: errorMsg,
-    };
-  }
+  return dispatchEmail({
+    to: normalizedTo,
+    subject: 'Reset your SchoolPass password',
+    html: htmlContent,
+    text: textContent,
+    actorType: params.actorType,
+    userId: params.userId,
+    eventPrefix: 'password_reset_email',
+    tokenToSanitize: params.token,
+  });
 }
 
 /**

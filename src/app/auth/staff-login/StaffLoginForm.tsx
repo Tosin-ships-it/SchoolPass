@@ -132,6 +132,7 @@ export function StaffLoginForm() {
 
         <FormField
           id="email"
+          name="email"
           label="Staff Email Address"
           type="email"
           autoComplete="email"
@@ -145,6 +146,7 @@ export function StaffLoginForm() {
 
         <FormField
           id="password"
+          name="password"
           label="Password"
           type="password"
           autoComplete="current-password"

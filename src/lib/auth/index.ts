@@ -701,24 +701,78 @@ export async function resetPassword(
   return { success: true };
 }
 
+export interface LogoutResult {
+  success: boolean;
+  role?: 'parent' | 'staff' | 'admin';
+  error?: string;
+}
+
 /**
  * Logout / Sign out.
+ * Inspects server-side session role before deletion, invalidates session in DB,
+ * clears the session cookie, and reports outcome honestly.
+ * Accepts an optional explicit session cookie (e.g. from incoming request headers).
  */
-export async function logout(): Promise<void> {
+export async function logout(explicitSessionCookie?: string): Promise<LogoutResult> {
+  let userRole: 'parent' | 'staff' | 'admin' | undefined;
+  let cleanupError: Error | null = null;
+
   try {
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    let sessionCookie = explicitSessionCookie;
+    if (!sessionCookie) {
+      try {
+        const cookieStore = await cookies();
+        sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+      } catch {
+        // cookies() may throw outside Next.js request context (e.g. standalone test environments)
+      }
+    }
+
     if (sessionCookie) {
       const sessionId = verifySessionPayload(sessionCookie);
       if (sessionId) {
+        const session = await findSessionRecord(sessionId);
+        if (session) {
+          const rawRole = String(session.role || '').trim().toLowerCase();
+          if (rawRole === 'staff' || rawRole === 'admin') {
+            userRole = rawRole as 'staff' | 'admin';
+          } else {
+            userRole = 'parent';
+          }
+        }
         await deleteSessionRecord(sessionId);
       }
     }
-  } catch {
-    // Ignore error
+  } catch (err: unknown) {
+    cleanupError = err instanceof Error ? err : new Error(String(err));
+    logEvent({
+      level: 'error',
+      event: 'logout_cleanup_failed',
+      actorType: userRole || 'parent',
+      outcome: 'failure',
+      details: { error: cleanupError.message },
+    });
   } finally {
-    await clearSessionCookie();
+    // Session cookie clearance must always occur
+    try {
+      await clearSessionCookie();
+    } catch {
+      // Ignore if called in an environment without cookies() support
+    }
   }
+
+  if (cleanupError) {
+    return {
+      success: false,
+      role: userRole,
+      error: 'Failed to fully invalidate server session record.',
+    };
+  }
+
+  return {
+    success: true,
+    role: userRole,
+  };
 }
 
 /**

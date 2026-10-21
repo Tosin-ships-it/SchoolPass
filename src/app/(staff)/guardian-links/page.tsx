@@ -82,18 +82,6 @@ export default async function GuardianLinksPage() {
             aria-label="Staff quick navigation"
             style={{ display: 'flex', alignItems: 'center', gap: '16px' }}
           >
-            <Link
-              href="/attendance"
-              style={{
-                fontSize: 'var(--typography-label-large-fontsize)',
-                color: 'var(--color-roles-primary)',
-                textDecoration: 'none',
-                fontWeight: 600,
-              }}
-            >
-              Attendance
-            </Link>
-
             <form action="/api/auth/logout" method="POST">
               <button
                 type="submit"
@@ -112,6 +100,25 @@ export default async function GuardianLinksPage() {
             </form>
           </nav>
         </header>
+
+        {/* Breadcrumb / Return Navigation */}
+        <div>
+          <Link
+            href="/attendance"
+            style={{
+              fontFamily: 'var(--typography-body-small-fontfamily)',
+              fontSize: 'var(--typography-body-small-fontsize)',
+              color: 'var(--color-roles-primary)',
+              textDecoration: 'none',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            &larr; Back to Staff Dashboard
+          </Link>
+        </div>
 
         {/* Page Title & Scope */}
         <div>
@@ -145,11 +152,12 @@ export default async function GuardianLinksPage() {
           staffRole={session.role}
         />
 
-        {/* Back Link */}
+        {/* Footer Navigation */}
         <div style={{ textAlign: 'center', marginTop: '16px' }}>
           <Link
             href="/"
             style={{
+              fontFamily: 'var(--typography-body-small-fontfamily)',
               fontSize: 'var(--typography-body-small-fontsize)',
               color: 'var(--color-roles-secondary)',
               textDecoration: 'none',
@@ -162,3 +170,4 @@ export default async function GuardianLinksPage() {
     </div>
   );
 }
+

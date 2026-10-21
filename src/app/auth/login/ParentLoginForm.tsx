@@ -218,6 +218,7 @@ export function ParentLoginForm() {
 
         <FormField
           id="email"
+          name="email"
           label="Email Address"
           type="email"
           autoComplete="email"
@@ -231,6 +232,7 @@ export function ParentLoginForm() {
 
         <FormField
           id="password"
+          name="password"
           label="Password"
           type="password"
           autoComplete="current-password"

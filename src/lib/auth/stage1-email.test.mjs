@@ -12,6 +12,8 @@ import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   isDevStubsEnabled,
+  getEmailTransport,
+  _setSmtpTransporterForTesting,
 } from './email.ts';
 import {
   hashPassword,
@@ -508,6 +510,204 @@ describe('SchoolPass Stage 1: Email Verification and Password Reset Delivery', (
     assert.equal(simulateFormFieldChange('email', 'Parent@Domain.COM'), 'parent@domain.com');
     assert.equal(simulateFormFieldChange('password', 'SecretPassword2026!'), 'SecretPassword2026!');
     assert.equal(simulateFormFieldChange('text', 'SP-2026-0001'), 'SP-2026-0001');
+  });
+
+  it('selects active email transport correctly based on EMAIL_TRANSPORT', () => {
+    const originalTransport = process.env.EMAIL_TRANSPORT;
+
+    try {
+      process.env.EMAIL_TRANSPORT = 'smtp';
+      assert.equal(getEmailTransport(), 'smtp');
+
+      process.env.EMAIL_TRANSPORT = 'SMTP';
+      assert.equal(getEmailTransport(), 'smtp');
+
+      process.env.EMAIL_TRANSPORT = 'resend';
+      assert.equal(getEmailTransport(), 'resend');
+
+      process.env.EMAIL_TRANSPORT = 'RESEND';
+      assert.equal(getEmailTransport(), 'resend');
+
+      delete process.env.EMAIL_TRANSPORT;
+      assert.equal(getEmailTransport(), 'resend', 'Defaults to resend for backward compatibility when unset');
+
+      process.env.EMAIL_TRANSPORT = '  ';
+      assert.equal(getEmailTransport(), 'resend', 'Defaults to resend when whitespace-only');
+    } finally {
+      if (originalTransport !== undefined) {
+        process.env.EMAIL_TRANSPORT = originalTransport;
+      } else {
+        delete process.env.EMAIL_TRANSPORT;
+      }
+    }
+  });
+
+  it('dispatches emails via SMTP using mock transport without making network calls', async () => {
+    const originalTransport = process.env.EMAIL_TRANSPORT;
+    const originalSmtpUser = process.env.SMTP_USER;
+    const originalSmtpPass = process.env.SMTP_PASS;
+    const originalSmtpFrom = process.env.SMTP_FROM;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalResendMock = process.env.RESEND_MOCK;
+    const originalEmailMock = process.env.EMAIL_MOCK;
+
+    const dispatchedMail = [];
+    const mockTransporter = {
+      sendMail: async (mailOptions) => {
+        dispatchedMail.push(mailOptions);
+        return {
+          messageId: `<mock-smtp-${dispatchedMail.length}@gmail.com>`,
+        };
+      },
+    };
+
+    try {
+      process.env.EMAIL_TRANSPORT = 'smtp';
+      process.env.SMTP_USER = 'schoolpass.test@gmail.com';
+      process.env.SMTP_PASS = 'abcd efgh ijkl mnop';
+      process.env.SMTP_FROM = 'SchoolPass Testing <schoolpass.test@gmail.com>';
+      process.env.NODE_ENV = 'development';
+      process.env.RESEND_MOCK = 'false';
+      delete process.env.EMAIL_MOCK;
+
+      _setSmtpTransporterForTesting(mockTransporter);
+
+      // 1. Send verification email via SMTP
+      const verifyResult = await sendVerificationEmail({
+        to: 'smtp.parent@example.com',
+        token: 'smtp_verify_token_999',
+        name: 'SMTP Parent',
+        userId: 'cuid_smtp_parent_1',
+      });
+      assert.equal(verifyResult.success, true);
+      assert.equal(verifyResult.id, '<mock-smtp-1@gmail.com>');
+      assert.equal(dispatchedMail.length, 1);
+      assert.equal(dispatchedMail[0].from, 'SchoolPass Testing <schoolpass.test@gmail.com>');
+      assert.deepEqual(dispatchedMail[0].to, ['smtp.parent@example.com']);
+      assert.ok(dispatchedMail[0].subject.includes('Confirm your SchoolPass email address'));
+      assert.ok(dispatchedMail[0].html.includes('smtp_verify_token_999'));
+
+      // 2. Send password reset email via SMTP
+      const resetResult = await sendPasswordResetEmail({
+        to: 'smtp.parent@example.com',
+        token: 'smtp_reset_token_888',
+        name: 'SMTP Parent',
+        userId: 'cuid_smtp_parent_1',
+      });
+      assert.equal(resetResult.success, true);
+      assert.equal(resetResult.id, '<mock-smtp-2@gmail.com>');
+      assert.equal(dispatchedMail.length, 2);
+      assert.ok(dispatchedMail[1].subject.includes('Reset your SchoolPass password'));
+      assert.ok(dispatchedMail[1].html.includes('smtp_reset_token_888'));
+
+      // 3. Send welcome email via SMTP
+      const welcomeResult = await sendWelcomeEmail({
+        to: 'smtp.newparent@example.com',
+        name: 'SMTP New Parent',
+        userId: 'cuid_smtp_parent_2',
+      });
+      assert.equal(welcomeResult.success, true);
+      assert.equal(welcomeResult.id, '<mock-smtp-3@gmail.com>');
+      assert.equal(dispatchedMail.length, 3);
+      assert.ok(dispatchedMail[2].subject.includes('Welcome to SchoolPass!'));
+    } finally {
+      _setSmtpTransporterForTesting(null);
+      if (originalTransport !== undefined) process.env.EMAIL_TRANSPORT = originalTransport;
+      else delete process.env.EMAIL_TRANSPORT;
+      if (originalSmtpUser !== undefined) process.env.SMTP_USER = originalSmtpUser;
+      else delete process.env.SMTP_USER;
+      if (originalSmtpPass !== undefined) process.env.SMTP_PASS = originalSmtpPass;
+      else delete process.env.SMTP_PASS;
+      if (originalSmtpFrom !== undefined) process.env.SMTP_FROM = originalSmtpFrom;
+      else delete process.env.SMTP_FROM;
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalResendMock !== undefined) process.env.RESEND_MOCK = originalResendMock;
+      else delete process.env.RESEND_MOCK;
+      if (originalEmailMock !== undefined) process.env.EMAIL_MOCK = originalEmailMock;
+      else delete process.env.EMAIL_MOCK;
+    }
+  });
+
+  it('safely handles SMTP missing credentials and error sanitization', async () => {
+    const originalTransport = process.env.EMAIL_TRANSPORT;
+    const originalSmtpUser = process.env.SMTP_USER;
+    const originalSmtpPass = process.env.SMTP_PASS;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalResendMock = process.env.RESEND_MOCK;
+
+    try {
+      process.env.EMAIL_TRANSPORT = 'smtp';
+      process.env.NODE_ENV = 'development';
+      process.env.RESEND_MOCK = 'false';
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+      _setSmtpTransporterForTesting(null);
+
+      // Missing credentials returns failure and does not throw
+      const missingCredsResult = await sendVerificationEmail({
+        to: 'fail.test@example.com',
+        token: 'secret_token_123',
+      });
+      assert.equal(missingCredsResult.success, false);
+      assert.equal(missingCredsResult.error, 'SMTP_USER or SMTP_PASS is not configured in environment');
+
+      // Transporter error is caught and credentials/tokens are sanitized
+      const secretPassword = 'my-ultra-secret-pass';
+      process.env.SMTP_USER = 'user@example.com';
+      process.env.SMTP_PASS = secretPassword;
+
+      const failingTransporter = {
+        sendMail: async () => {
+          throw new Error(`Authentication failed for password ${secretPassword} with token secret_token_123`);
+        },
+      };
+      _setSmtpTransporterForTesting(failingTransporter);
+
+      const errResult = await sendVerificationEmail({
+        to: 'fail.test@example.com',
+        token: 'secret_token_123',
+      });
+      assert.equal(errResult.success, false);
+      assert.ok(!errResult.error.includes(secretPassword), 'Sanitizes SMTP password from error string');
+      assert.ok(!errResult.error.includes('secret_token_123'), 'Sanitizes verification token from error string');
+      assert.ok(errResult.error.includes('***'), 'Replaces secrets with mask characters');
+    } finally {
+      _setSmtpTransporterForTesting(null);
+      if (originalTransport !== undefined) process.env.EMAIL_TRANSPORT = originalTransport;
+      else delete process.env.EMAIL_TRANSPORT;
+      if (originalSmtpUser !== undefined) process.env.SMTP_USER = originalSmtpUser;
+      else delete process.env.SMTP_USER;
+      if (originalSmtpPass !== undefined) process.env.SMTP_PASS = originalSmtpPass;
+      else delete process.env.SMTP_PASS;
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalResendMock !== undefined) process.env.RESEND_MOCK = originalResendMock;
+      else delete process.env.RESEND_MOCK;
+    }
+  });
+
+  it('preserves existing test safeguards when EMAIL_MOCK is set', async () => {
+    const originalEmailMock = process.env.EMAIL_MOCK;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalTransport = process.env.EMAIL_TRANSPORT;
+
+    try {
+      process.env.EMAIL_MOCK = 'true';
+      process.env.EMAIL_TRANSPORT = 'smtp';
+      process.env.NODE_ENV = 'development';
+
+      const result = await sendVerificationEmail({
+        to: 'mock.test@example.com',
+        token: 'any_token',
+      });
+      assert.equal(result.success, true);
+      assert.equal(result.id, 'test_mock_email_id');
+    } finally {
+      if (originalEmailMock !== undefined) process.env.EMAIL_MOCK = originalEmailMock;
+      else delete process.env.EMAIL_MOCK;
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalTransport !== undefined) process.env.EMAIL_TRANSPORT = originalTransport;
+      else delete process.env.EMAIL_TRANSPORT;
+    }
   });
 });
 

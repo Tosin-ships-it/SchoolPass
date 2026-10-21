@@ -216,6 +216,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
 
         <FormField
           id="email"
+          name="email"
           label="Email Address"
           type="email"
           autoComplete="email"
@@ -227,6 +228,7 @@ function ParentLoginView({ onSwitchView }: ViewProps) {
 
         <FormField
           id="password"
+          name="password"
           label="Password"
           type="password"
           autoComplete="current-password"
@@ -885,6 +887,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
 
         <FormField
           id="email"
+          name="email"
           label="Staff Email"
           type="email"
           autoComplete="email"
@@ -896,6 +899,7 @@ function StaffLoginView({ onSwitchView }: ViewProps) {
 
         <FormField
           id="password"
+          name="password"
           label="Password"
           type="password"
           autoComplete="current-password"

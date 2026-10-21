@@ -336,4 +336,65 @@ describe('SchoolPass Security Improvements Test Suite', () => {
       assert.equal(futureLogin, true, 'Subsequent logins succeed with trimmed password');
     });
   });
+
+  describe('7. Sign-In Form State Initialization and Field Semantics', () => {
+    it('verifies ParentLoginForm initializes email and password state to empty strings without hardcoded values', async () => {
+      const fs = await import('node:fs');
+      const parentFormSrc = fs.readFileSync('src/app/auth/login/ParentLoginForm.tsx', 'utf-8');
+
+      // Verify state initialization is empty
+      assert.match(parentFormSrc, /const\s*\[email,\s*setEmail\]\s*=\s*useState\(''\);/);
+      assert.match(parentFormSrc, /const\s*\[password,\s*setPassword\]\s*=\s*useState\(''\);/);
+
+      // Verify no hardcoded credentials in initial state or default values
+      assert.doesNotMatch(parentFormSrc, /useState\(['"][^'"]+@[^'"]+['"]\)/);
+      assert.doesNotMatch(parentFormSrc, /defaultValue/);
+
+      // Verify standard field semantics and autocomplete
+      assert.match(parentFormSrc, /name="email"/);
+      assert.match(parentFormSrc, /name="password"/);
+      assert.match(parentFormSrc, /autoComplete="email"/);
+      assert.match(parentFormSrc, /autoComplete="current-password"/);
+
+      // Verify no localStorage or sessionStorage credential retrieval
+      assert.doesNotMatch(parentFormSrc, /localStorage/);
+      assert.doesNotMatch(parentFormSrc, /sessionStorage/);
+    });
+
+    it('verifies StaffLoginForm initializes email and password state to empty strings without hardcoded values', async () => {
+      const fs = await import('node:fs');
+      const staffFormSrc = fs.readFileSync('src/app/auth/staff-login/StaffLoginForm.tsx', 'utf-8');
+
+      // Verify state initialization is empty
+      assert.match(staffFormSrc, /const\s*\[email,\s*setEmail\]\s*=\s*useState\(''\);/);
+      assert.match(staffFormSrc, /const\s*\[password,\s*setPassword\]\s*=\s*useState\(''\);/);
+
+      // Verify no hardcoded credentials in initial state or default values
+      assert.doesNotMatch(staffFormSrc, /useState\(['"][^'"]+@[^'"]+['"]\)/);
+      assert.doesNotMatch(staffFormSrc, /defaultValue/);
+
+      // Verify standard field semantics and autocomplete
+      assert.match(staffFormSrc, /name="email"/);
+      assert.match(staffFormSrc, /name="password"/);
+      assert.match(staffFormSrc, /autoComplete="email"/);
+      assert.match(staffFormSrc, /autoComplete="current-password"/);
+
+      // Verify no localStorage or sessionStorage credential retrieval
+      assert.doesNotMatch(staffFormSrc, /localStorage/);
+      assert.doesNotMatch(staffFormSrc, /sessionStorage/);
+    });
+
+    it('verifies DevCredentialsHint requires explicit user click selection and does not auto-populate on mount', async () => {
+      const fs = await import('node:fs');
+      const authElementsSrc = fs.readFileSync('src/app/auth/components/AuthFormElements.tsx', 'utf-8');
+
+      // Verify DevCredentialsHint does not contain auto-populating useEffect or mount handlers
+      const hintFuncIndex = authElementsSrc.indexOf('function DevCredentialsHint');
+      const hintSrc = authElementsSrc.slice(hintFuncIndex);
+
+      assert.doesNotMatch(hintSrc, /useEffect/);
+      assert.match(hintSrc, /onClick=\{.*onSelect/);
+    });
+  });
 });
+
