@@ -16,6 +16,7 @@ const STAFF_ROUTE_PREFIXES = [
   '/settings',
   '/staff-accounts',
   '/guardian-links',
+  '/students',
 ];
 
 export function middleware(request: NextRequest) {
@@ -57,5 +58,6 @@ export const config = {
     '/settings/:path*',
     '/staff-accounts/:path*',
     '/guardian-links/:path*',
+    '/students/:path*',
   ],
 };

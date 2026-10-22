@@ -473,11 +473,28 @@ export function DevCredentialsHint({
         ) : (
           <>
             <div>
-              <strong>School Staff:</strong> staff@school.ng / StaffPass2026!
+              <strong>General Staff:</strong> staff@school.ng / StaffPass2026!
               {onSelect && (
                 <button
                   type="button"
                   onClick={() => onSelect('staff@school.ng', 'StaffPass2026!')}
+                  style={{
+                    marginLeft: '8px',
+                    color: 'var(--color-roles-primary)',
+                    textDecoration: 'underline',
+                    fontSize: '11px',
+                  }}
+                >
+                  Use
+                </button>
+              )}
+            </div>
+            <div>
+              <strong>Front Desk Staff:</strong> frontdesk@school.ng / FrontDesk2026!
+              {onSelect && (
+                <button
+                  type="button"
+                  onClick={() => onSelect('frontdesk@school.ng', 'FrontDesk2026!')}
                   style={{
                     marginLeft: '8px',
                     color: 'var(--color-roles-primary)',

@@ -5,6 +5,7 @@ import { headers } from 'next/headers';
 import {
   getSession,
   assertFrontDeskAccess,
+  assertAdminSession,
   registerIntendingStudent,
   getIntendingStudents,
   setStaffFrontDeskPermission,
@@ -165,19 +166,19 @@ export async function toggleStaffFrontDeskAction(
       return { success: false, error: validation.error };
     }
 
-    const session = await getSession();
-    if (!session || session.role !== 'admin') {
+    const auth = await assertAdminSession();
+    if (!auth.authorized || !auth.session) {
       recordIpFailedAttempt(ip, 'admin_permission_toggle');
       logEvent({
         level: 'warn',
         event: 'unauthorized_permission_toggle_attempt',
-        actorType: session?.role || 'unauthenticated',
-        actorId: session?.userId || 'unknown',
+        actorType: auth.session?.role || 'unauthenticated',
+        actorId: auth.session?.userId || 'unknown',
         outcome: 'blocked',
       });
       return {
         success: false,
-        error: 'Unauthorized. Admin privileges required to manage front-desk permissions.',
+        error: auth.error || 'Unauthorized. Admin privileges required to manage front-desk permissions.',
       };
     }
 
@@ -190,7 +191,7 @@ export async function toggleStaffFrontDeskAction(
       level: 'info',
       event: 'staff_front_desk_permission_updated',
       actorType: 'admin',
-      actorId: session.userId,
+      actorId: auth.session.userId,
       entityType: 'staff_user',
       entityId: updated.id,
       outcome: 'success',

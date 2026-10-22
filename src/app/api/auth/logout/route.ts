@@ -46,6 +46,7 @@ export async function POST(request: NextRequest | Request) {
     const staffRoutes = [
       '/attendance',
       '/guardian-links',
+      '/students',
       '/info',
       '/arrival-code',
       '/payments',

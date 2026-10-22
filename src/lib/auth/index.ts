@@ -172,6 +172,48 @@ export async function getSession(): Promise<AuthSession | null> {
 }
 
 /**
+ * Assert that the current session is an authenticated staff or admin session.
+ * Parents and unauthenticated callers are strictly blocked.
+ */
+export async function assertStaffSession(): Promise<{
+  authorized: boolean;
+  session?: AuthSession;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session) {
+    return { authorized: false, error: 'Authentication required.' };
+  }
+
+  if (session.role !== 'staff' && session.role !== 'admin') {
+    return { authorized: false, session, error: 'Unauthorized. Staff privileges required.' };
+  }
+
+  return { authorized: true, session };
+}
+
+/**
+ * Assert that the current session is an authenticated admin session.
+ * Staff without admin role, parents, and unauthenticated callers are strictly blocked.
+ */
+export async function assertAdminSession(): Promise<{
+  authorized: boolean;
+  session?: AuthSession;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session) {
+    return { authorized: false, error: 'Authentication required.' };
+  }
+
+  if (session.role !== 'admin') {
+    return { authorized: false, session, error: 'Unauthorized. Admin privileges required.' };
+  }
+
+  return { authorized: true, session };
+}
+
+/**
  * Assert that the current session has front-desk privileges.
  * Admin users are granted access implicitly.
  * Teaching/general staff must have isFrontDesk explicitly set to true.
@@ -589,7 +631,7 @@ export async function loginStaff(
   if (migratedTrimmed) {
     try {
       const newHash = await hashPassword(trimmedPassword);
-      await updateStaffPassword(staff.id, newHash);
+      await updateStaffPassword(staff.id, newHash, { invalidateSessions: false });
       logEvent({
         level: 'info',
         event: 'staff_password_trimmed_migrated',

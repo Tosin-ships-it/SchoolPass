@@ -157,12 +157,19 @@ export async function findStaffById(id: string): Promise<StaffAccount | null> {
   return staff;
 }
 
-export async function updateStaffPassword(id: string, passwordHash: string): Promise<StaffAccount | null> {
+export async function updateStaffPassword(
+  id: string,
+  passwordHash: string,
+  options?: { invalidateSessions?: boolean }
+): Promise<StaffAccount | null> {
   try {
     const staff = await prisma.staffUser.update({
       where: { id },
       data: { passwordHash },
     });
+    if (options?.invalidateSessions !== false) {
+      await deleteAllUserSessions(id);
+    }
     return staff;
   } catch {
     return null;

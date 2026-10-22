@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
 import {
-  getSession,
+  assertStaffSession,
   approveLinkRequest,
   rejectLinkRequest,
   removeGuardianLink,
@@ -35,13 +35,13 @@ export async function approveStudentLinkAction(requestId: string): Promise<{ suc
       return { success: false, error: validation.error };
     }
 
-    const session = await getSession();
-    if (!session || (session.role !== 'staff' && session.role !== 'admin')) {
+    const auth = await assertStaffSession();
+    if (!auth.authorized || !auth.session) {
       recordIpFailedAttempt(ip, 'staff_guardian_actions');
-      return { success: false, error: 'Unauthorized. Staff privileges required.' };
+      return { success: false, error: auth.error || 'Unauthorized. Staff privileges required.' };
     }
 
-    const result = await approveLinkRequest(validation.data.requestId, session.userId);
+    const result = await approveLinkRequest(validation.data.requestId, auth.session.userId);
     if (!result.success) {
       recordIpFailedAttempt(ip, 'staff_guardian_actions');
     } else {
@@ -74,15 +74,15 @@ export async function rejectStudentLinkAction(
       return { success: false, error: validation.error };
     }
 
-    const session = await getSession();
-    if (!session || (session.role !== 'staff' && session.role !== 'admin')) {
+    const auth = await assertStaffSession();
+    if (!auth.authorized || !auth.session) {
       recordIpFailedAttempt(ip, 'staff_guardian_actions');
-      return { success: false, error: 'Unauthorized. Staff privileges required.' };
+      return { success: false, error: auth.error || 'Unauthorized. Staff privileges required.' };
     }
 
     const result = await rejectLinkRequest(
       validation.data.requestId,
-      session.userId,
+      auth.session.userId,
       validation.data.reason || undefined
     );
     if (!result.success) {
@@ -114,13 +114,13 @@ export async function removeGuardianLinkAction(linkId: string): Promise<{ succes
       return { success: false, error: validation.error };
     }
 
-    const session = await getSession();
-    if (!session || (session.role !== 'staff' && session.role !== 'admin')) {
+    const auth = await assertStaffSession();
+    if (!auth.authorized || !auth.session) {
       recordIpFailedAttempt(ip, 'staff_guardian_actions');
-      return { success: false, error: 'Unauthorized. Staff privileges required.' };
+      return { success: false, error: auth.error || 'Unauthorized. Staff privileges required.' };
     }
 
-    const result = await removeGuardianLink(validation.data.linkId, session.userId);
+    const result = await removeGuardianLink(validation.data.linkId, auth.session.userId);
     if (!result.success) {
       recordIpFailedAttempt(ip, 'staff_guardian_actions');
     } else {
