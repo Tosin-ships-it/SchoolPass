@@ -45,12 +45,14 @@ model StaffUser {
   email        String        @unique
   passwordHash String
   role         StaffRole     @default(STAFF)
+  isFrontDesk  Boolean       @default(false)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  feeEntries           FeeEntry[]
-  attendanceRecords    AttendanceRecord[]
-  reviewedLinkRequests StudentLinkRequest[]
+  feeEntries                  FeeEntry[]
+  attendanceRecords           AttendanceRecord[]
+  reviewedLinkRequests        StudentLinkRequest[]
+  intendingStudentsRegistered IntendingStudent[]
 
   @@map("staff_users")
 }
@@ -408,4 +410,38 @@ model SchoolSetting {
   updatedAt DateTime @updatedAt
 
   @@map("school_settings")
+}
+
+// ==========================================
+// 8. INTENDING STUDENTS & REGISTRATION (STAGE 2)
+// ==========================================
+
+model IntendingStudent {
+  id             String    @id @default(cuid())
+  studentNumber  String    @unique
+  name           String
+  intendedClass  String
+  sessionYear    String
+  guardianName   String?
+  guardianPhone  String?
+  guardianEmail  String?
+  notes          String?
+  registeredById String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  registeredBy   StaffUser @relation(fields: [registeredById], references: [id], onDelete: Restrict)
+
+  @@index([studentNumber])
+  @@index([intendedClass])
+  @@index([sessionYear])
+  @@index([registeredById])
+  @@map("intending_students")
+}
+
+model StudentNumberSequence {
+  year      Int @id
+  lastValue Int @default(0)
+
+  @@map("student_number_sequences")
 }

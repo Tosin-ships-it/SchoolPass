@@ -50,15 +50,72 @@ export function isValidIp(ip: string): boolean {
 }
 
 /**
+ * Safely retrieve a header value from standard Headers, Request, Next.js headers(),
+ * or plain header dictionary objects without throwing if internal properties exist.
+ */
+function getHeaderValue(
+  target: Request | Headers | { get: (name: string) => string | null } | Record<string, unknown> | unknown,
+  headerName: string
+): string | null {
+  if (!target || typeof target !== 'object') {
+    return null;
+  }
+
+  const nameLower = headerName.toLowerCase();
+
+  // 1. Check if target directly implements .get() (Headers, Next.js ReadonlyHeaders, custom Headers-like)
+  if ('get' in target && typeof (target as { get: unknown }).get === 'function') {
+    try {
+      const val = (target as { get: (name: string) => string | null }).get(nameLower)
+        ?? (target as { get: (name: string) => string | null }).get(headerName);
+      if (typeof val === 'string') return val;
+    } catch {
+      // Fall through if getter throws
+    }
+  }
+
+  // 2. Check if target is a Request or request-like wrapper containing a headers property
+  if ('headers' in target && target.headers && typeof target.headers === 'object') {
+    const inner = target.headers;
+    if ('get' in inner && typeof (inner as { get: unknown }).get === 'function') {
+      try {
+        const val = (inner as { get: (name: string) => string | null }).get(nameLower)
+          ?? (inner as { get: (name: string) => string | null }).get(headerName);
+        if (typeof val === 'string') return val;
+      } catch {
+        // Fall through
+      }
+    } else {
+      for (const [k, v] of Object.entries(inner)) {
+        if (k.toLowerCase() === nameLower) {
+          if (typeof v === 'string') return v;
+          if (Array.isArray(v) && typeof v[0] === 'string') return v[0];
+        }
+      }
+    }
+  }
+
+  // 3. Check if target is a plain dictionary of headers
+  for (const [k, v] of Object.entries(target as Record<string, unknown>)) {
+    if (k.toLowerCase() === nameLower) {
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v) && typeof v[0] === 'string') return v[0];
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extract the client's public or proxy IP address safely from verified platform headers.
  * Resolves platform-provided headers first (Vercel Edge), then standard reverse-proxy headers,
  * preventing spoofed X-Forwarded-For prefixes from bypassing rate limits.
  */
-export function extractClientIp(requestOrHeaders: Request | Headers): string {
-  const headers = 'headers' in requestOrHeaders ? requestOrHeaders.headers : requestOrHeaders;
-
+export function extractClientIp(
+  requestOrHeaders: Request | Headers | { get: (name: string) => string | null } | Record<string, unknown>
+): string {
   // 1. Vercel Edge platform-injected header (unforgeable by external clients)
-  const xVercelForwardedFor = headers.get('x-vercel-forwarded-for');
+  const xVercelForwardedFor = getHeaderValue(requestOrHeaders, 'x-vercel-forwarded-for');
   if (xVercelForwardedFor) {
     const candidate = xVercelForwardedFor.split(',')[0].trim();
     if (isValidIp(candidate)) {
@@ -67,7 +124,7 @@ export function extractClientIp(requestOrHeaders: Request | Headers): string {
   }
 
   // 2. Standard single client IP header set by reverse proxy (e.g. Nginx or Vercel Edge)
-  const xRealIp = headers.get('x-real-ip');
+  const xRealIp = getHeaderValue(requestOrHeaders, 'x-real-ip');
   if (xRealIp) {
     const candidate = xRealIp.trim();
     if (isValidIp(candidate)) {
@@ -77,7 +134,7 @@ export function extractClientIp(requestOrHeaders: Request | Headers): string {
 
   // 3. X-Forwarded-For header: When behind an edge proxy, if a client sends a spoofed
   // X-Forwarded-For header, the proxy appends the real client IP to the end of the chain.
-  const xForwardedFor = headers.get('x-forwarded-for');
+  const xForwardedFor = getHeaderValue(requestOrHeaders, 'x-forwarded-for');
   if (xForwardedFor) {
     const ips = xForwardedFor.split(',').map((s) => s.trim()).filter(Boolean);
     if (ips.length > 0) {
@@ -91,6 +148,7 @@ export function extractClientIp(requestOrHeaders: Request | Headers): string {
 
   return '127.0.0.1';
 }
+
 
 /**
  * Check whether an IP address is currently blocked by rate limiting.

@@ -176,3 +176,35 @@ Reason: if this file drifts from the schema, the agent will invent.
   - `blockedUntil`: `DateTime?`
   - `updatedAt`: `DateTime @updatedAt`
 - **Table mapping**: `@@map("rate_limits")`
+
+### Stage 2 Approved Schema Definitions: Front-Desk Student Intake & Number Generation
+
+### Model: `StaffUser` (Updated)
+- **Additional Field**:
+  - `isFrontDesk`: `Boolean @default(false)` (Grants explicit front-desk student registration and lookup permissions. Teaching staff default to false.)
+  - Relations: `intendingStudentsRegistered IntendingStudent[]`
+
+### Model: `IntendingStudent`
+- **Purpose**: Track pre-admission prospective student intake and generated student numbers without polluting active student attendance, fees, or guardian linking.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `studentNumber`: `String @unique` (Format: SP-YYYY-NNNN)
+  - `name`: `String`
+  - `intendedClass`: `String` (e.g. Primary 1, JSS 1)
+  - `sessionYear`: `String` (e.g. 2026/2027)
+  - `guardianName`: `String?`
+  - `guardianPhone`: `String?`
+  - `guardianEmail`: `String?`
+  - `notes`: `String?` (Max 500 characters)
+  - `registeredById`: `String`
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `registeredBy StaffUser @relation(fields: [registeredById], references: [id], onDelete: Restrict)`
+- **Constraints**: `@@index([studentNumber])`, `@@index([intendedClass])`, `@@index([sessionYear])`, `@@index([registeredById])`, `@@map("intending_students")`
+
+### Model: `StudentNumberSequence`
+- **Purpose**: Atomic, race-safe monotonically increasing integer sequence per academic intake year.
+- **Fields**:
+  - `year`: `Int @id` (Intake calendar year, e.g. 2026)
+  - `lastValue`: `Int @default(0)`
+- **Table mapping**: `@@map("student_number_sequences")`

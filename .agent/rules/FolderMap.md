@@ -46,7 +46,8 @@ src/
 │   │   ├── reports/
 │   │   ├── settings/
 │   │   ├── staff-accounts/
-│   │   └── guardian-links/
+│   │   ├── guardian-links/
+│   │   └── students/
 │   ├── api/
 │   │   ├── ask/
 │   │   ├── records/
@@ -87,6 +88,7 @@ src/
 | `src/app/(staff)/settings/` | School settings. Current term and session. |
 | `src/app/(staff)/staff-accounts/` | Staff accounts. |
 | `src/app/(staff)/guardian-links/` | Parent-to-student links. |
+| `src/app/(staff)/students/` | Intending student intake and registration UI. |
 | `src/app/api/ask/` | AI answer route. Thin re-export. |
 | `src/app/api/records/` | Private record reads route. |
 | `src/app/api/arrival/` | Arrival confirm and status route. Thin re-export. |

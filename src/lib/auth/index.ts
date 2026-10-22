@@ -47,12 +47,22 @@ import {
   rejectStudentLinkRequest,
   getAllParentStudentLinks,
   removeParentStudentLink,
+  registerIntendingStudent,
+  getIntendingStudents,
+  findIntendingStudentById,
+  findIntendingStudentByNumber,
+  setStaffFrontDeskPermission,
+  getAllStaffUsers,
+  extractIntakeYear,
+  formatStudentNumber,
   type ParentAccount,
   type StaffAccount,
   type SessionRecord,
   type ParentStudentLink,
   type StudentLinkRequestRecord,
   type LinkRequestStatus,
+  type IntendingStudentInput,
+  type IntendingStudentRecord,
 } from './store';
 import { logEvent } from '@/lib/logging';
 import {
@@ -159,6 +169,37 @@ export async function getSession(): Promise<AuthSession | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Assert that the current session has front-desk privileges.
+ * Admin users are granted access implicitly.
+ * Teaching/general staff must have isFrontDesk explicitly set to true.
+ * Parents and unauthenticated callers are strictly blocked.
+ */
+export async function assertFrontDeskAccess(): Promise<{
+  authorized: boolean;
+  session?: AuthSession;
+  error?: string;
+}> {
+  const session = await getSession();
+  if (!session) {
+    return { authorized: false, error: 'Authentication required.' };
+  }
+
+  if (session.role === 'admin') {
+    return { authorized: true, session };
+  }
+
+  if (session.role === 'staff') {
+    const staff = await findStaffById(session.userId);
+    if (staff?.isFrontDesk) {
+      return { authorized: true, session };
+    }
+    return { authorized: false, session, error: 'Unauthorized. Front-desk permissions required.' };
+  }
+
+  return { authorized: false, session, error: 'Unauthorized. Staff privileges required.' };
 }
 
 /**
@@ -1027,6 +1068,19 @@ export type {
   SendVerificationEmailParams,
   SendPasswordResetEmailParams,
   SendEmailResult,
+  IntendingStudentInput,
+  IntendingStudentRecord,
+};
+
+export {
+  registerIntendingStudent,
+  getIntendingStudents,
+  findIntendingStudentById,
+  findIntendingStudentByNumber,
+  setStaffFrontDeskPermission,
+  getAllStaffUsers,
+  extractIntakeYear,
+  formatStudentNumber,
 };
 
 export { determineDashboardLinkState, type DashboardLinkState } from './dashboard';

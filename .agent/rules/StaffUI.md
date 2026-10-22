@@ -20,11 +20,15 @@ The interface has exactly these screens. No other screen is added without user a
 - Staff accounts.
 - Guardian links (`ParentStudent`).
 - Front Desk Officer WhatsApp number.
+- Intending student intake and registration (`IntendingStudent`) at `/students` (PRD Addendum §8.3).
 Reason: the PRD fixes the capabilities. Extra screens add scope.
 
 ## Rule 2. Role to screen mapping
-A Staff account sees only the screens its role has.
-The role to screen mapping is recorded here.
+A Staff account sees only the screens its role and permissions have.
+- `/students`: Accessible strictly to Admin and Staff accounts with explicit `isFrontDesk === true` permission. Teaching staff default to false and are denied access.
+- `/guardian-links`: Staff and Admin.
+- `/attendance`: Staff and Admin.
+- `/settings`, `/staff-accounts`: Admin only.
 Reason: least privilege reduces the impact of a compromised staff account.
 
 ## Rule 3. Navigation

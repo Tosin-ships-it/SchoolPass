@@ -161,3 +161,80 @@ export const staffRemoveGuardianLinkActionSchema = z.object({
   linkId: cuidSchema,
 });
 export type StaffRemoveGuardianLinkActionInput = z.infer<typeof staffRemoveGuardianLinkActionSchema>;
+
+/**
+ * Front-desk intending student intake and search schemas (Stage 2)
+ */
+
+export const intendingStudentIntakeSchema = z.object({
+  name: z
+    .string({
+      required_error: 'Student full name is required.',
+      invalid_type_error: 'Student name must be a valid text string.',
+    })
+    .trim()
+    .min(2, 'Student full name must be at least 2 characters.')
+    .max(100, 'Student full name must not exceed 100 characters.'),
+  intendedClass: z
+    .string({
+      required_error: 'Intended class is required.',
+      invalid_type_error: 'Intended class must be a valid text string.',
+    })
+    .trim()
+    .min(1, 'Intended class is required.')
+    .max(50, 'Intended class must not exceed 50 characters.'),
+  sessionYear: z
+    .string({
+      required_error: 'Session year is required.',
+      invalid_type_error: 'Session year must be a valid text string.',
+    })
+    .trim()
+    .min(4, 'Session year is required (e.g. 2026/2027).')
+    .max(20, 'Session year must not exceed 20 characters.'),
+  guardianName: z
+    .string({ invalid_type_error: 'Guardian name must be a valid text string.' })
+    .trim()
+    .max(100, 'Guardian name must not exceed 100 characters.')
+    .optional()
+    .nullable(),
+  guardianPhone: z
+    .string({ invalid_type_error: 'Guardian phone must be a valid text string.' })
+    .trim()
+    .max(30, 'Guardian phone must not exceed 30 characters.')
+    .optional()
+    .nullable(),
+  guardianEmail: z
+    .string({ invalid_type_error: 'Guardian email must be a valid text string.' })
+    .trim()
+    .email('Please enter a valid guardian email address.')
+    .max(255, 'Guardian email must not exceed 255 characters.')
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  notes: z
+    .string({ invalid_type_error: 'Notes must be a valid text string.' })
+    .trim()
+    .max(500, 'Notes must not exceed 500 characters.')
+    .optional()
+    .nullable(),
+});
+export type IntendingStudentIntakeInput = z.infer<typeof intendingStudentIntakeSchema>;
+
+export const intendingStudentSearchSchema = z.object({
+  query: z
+    .string({ invalid_type_error: 'Search query must be a valid text string.' })
+    .trim()
+    .max(100, 'Search query must not exceed 100 characters.')
+    .optional()
+    .nullable(),
+});
+export type IntendingStudentSearchInput = z.infer<typeof intendingStudentSearchSchema>;
+
+export const staffToggleFrontDeskSchema = z.object({
+  staffId: cuidSchema,
+  isFrontDesk: z.boolean({
+    required_error: 'Front-desk permission status is required.',
+    invalid_type_error: 'Front-desk permission status must be a boolean.',
+  }),
+});
+export type StaffToggleFrontDeskInput = z.infer<typeof staffToggleFrontDeskSchema>;

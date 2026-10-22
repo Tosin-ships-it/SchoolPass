@@ -51,14 +51,21 @@ export function GuardianLinksManager({
   const handleApprove = (requestId: string) => {
     setActionMessage(null);
     startTransition(async () => {
-      const res = await approveStudentLinkAction(requestId);
-      if (res.success) {
-        setActionMessage({ type: 'success', text: 'Student link approved successfully.' });
-        setRequests(prev =>
-          prev.map(r => (r.id === requestId ? { ...r, status: 'APPROVED', reviewedAt: new Date() } : r))
-        );
-      } else {
-        setActionMessage({ type: 'error', text: res.error || 'Failed to approve request.' });
+      try {
+        const res = await approveStudentLinkAction(requestId);
+        if (res.success) {
+          setActionMessage({ type: 'success', text: 'Student link approved successfully.' });
+          setRequests(prev =>
+            prev.map(r => (r.id === requestId ? { ...r, status: 'APPROVED', reviewedAt: new Date() } : r))
+          );
+        } else {
+          setActionMessage({ type: 'error', text: res.error || 'Failed to approve request.' });
+        }
+      } catch (err: unknown) {
+        setActionMessage({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'An unexpected error occurred while approving request.',
+        });
       }
     });
   };
@@ -70,20 +77,27 @@ export function GuardianLinksManager({
     const reason = rejectionReason;
 
     startTransition(async () => {
-      const res = await rejectStudentLinkAction(reqId, reason);
-      if (res.success) {
-        setActionMessage({ type: 'success', text: 'Student link request rejected.' });
-        setRequests(prev =>
-          prev.map(r =>
-            r.id === reqId
-              ? { ...r, status: 'REJECTED', reviewedAt: new Date(), rejectionReason: reason || null }
-              : r
-          )
-        );
-        setRejectingRequestId(null);
-        setRejectionReason('');
-      } else {
-        setActionMessage({ type: 'error', text: res.error || 'Failed to reject request.' });
+      try {
+        const res = await rejectStudentLinkAction(reqId, reason);
+        if (res.success) {
+          setActionMessage({ type: 'success', text: 'Student link request rejected.' });
+          setRequests(prev =>
+            prev.map(r =>
+              r.id === reqId
+                ? { ...r, status: 'REJECTED', reviewedAt: new Date(), rejectionReason: reason || null }
+                : r
+            )
+          );
+          setRejectingRequestId(null);
+          setRejectionReason('');
+        } else {
+          setActionMessage({ type: 'error', text: res.error || 'Failed to reject request.' });
+        }
+      } catch (err: unknown) {
+        setActionMessage({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'An unexpected error occurred while rejecting request.',
+        });
       }
     });
   };
@@ -94,13 +108,20 @@ export function GuardianLinksManager({
     const linkId = removingLinkId;
 
     startTransition(async () => {
-      const res = await removeGuardianLinkAction(linkId);
-      if (res.success) {
-        setActionMessage({ type: 'success', text: 'Guardian link removed successfully.' });
-        setActiveLinks(prev => prev.filter(l => l.id !== linkId));
-        setRemovingLinkId(null);
-      } else {
-        setActionMessage({ type: 'error', text: res.error || 'Failed to remove link.' });
+      try {
+        const res = await removeGuardianLinkAction(linkId);
+        if (res.success) {
+          setActionMessage({ type: 'success', text: 'Guardian link removed successfully.' });
+          setActiveLinks(prev => prev.filter(l => l.id !== linkId));
+          setRemovingLinkId(null);
+        } else {
+          setActionMessage({ type: 'error', text: res.error || 'Failed to remove link.' });
+        }
+      } catch (err: unknown) {
+        setActionMessage({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'An unexpected error occurred while removing link.',
+        });
       }
     });
   };

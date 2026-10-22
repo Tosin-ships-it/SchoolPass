@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getSession } from '@/lib/auth';
+import { getSession, assertFrontDeskAccess } from '@/lib/auth';
 
 export const metadata: Metadata = {
   title: 'Staff Attendance',
@@ -14,6 +14,8 @@ export default async function StaffAttendancePage() {
   if (!session || (session.role !== 'staff' && session.role !== 'admin')) {
     redirect('/auth/staff-login?returnUrl=/attendance');
   }
+
+  const frontDeskAccess = await assertFrontDeskAccess();
 
   return (
     <div
@@ -191,6 +193,26 @@ export default async function StaffAttendancePage() {
               Review parent linking requests and manage verified student links.
             </p>
           </Link>
+
+          {frontDeskAccess.authorized && (
+            <Link
+              href="/students"
+              style={{
+                padding: '16px',
+                backgroundColor: 'var(--color-roles-surface)',
+                border: '1px solid var(--color-roles-outline-color)',
+                textDecoration: 'none',
+                display: 'block',
+              }}
+            >
+              <h3 style={{ fontSize: '15px', color: 'var(--color-roles-primary)', marginBottom: '4px' }}>
+                Student Intake &rarr;
+              </h3>
+              <p style={{ fontSize: '12px', color: 'var(--color-roles-on-surface-variant)', margin: 0 }}>
+                Front-desk intake and identifier generation for prospective students.
+              </p>
+            </Link>
+          )}
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '12px' }}>

@@ -114,6 +114,24 @@ export default async function RecordsPage() {
 
         {/* Welcome Section */}
         <div>
+          <div style={{ marginBottom: '12px' }}>
+            <Link
+              href="/ask"
+              aria-label="Back to parent dashboard"
+              style={{
+                fontFamily: 'var(--typography-body-small-fontfamily)',
+                fontSize: 'var(--typography-body-small-fontsize)',
+                color: 'var(--color-roles-primary)',
+                textDecoration: 'none',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              &larr; Back to Dashboard
+            </Link>
+          </div>
           <h1
             style={{
               fontFamily: 'var(--typography-headline-small-fontfamily)',

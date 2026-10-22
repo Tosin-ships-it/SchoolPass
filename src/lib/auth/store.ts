@@ -18,6 +18,7 @@ export interface StaffAccount {
   email: string;
   passwordHash: string;
   role: 'STAFF' | 'ADMIN';
+  isFrontDesk: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -173,6 +174,7 @@ export async function createStaffUser(params: {
   email: string;
   passwordHash: string;
   role?: 'STAFF' | 'ADMIN';
+  isFrontDesk?: boolean;
 }): Promise<StaffAccount> {
   const staff = await prisma.staffUser.create({
     data: {
@@ -180,9 +182,32 @@ export async function createStaffUser(params: {
       email: params.email.toLowerCase().trim(),
       passwordHash: params.passwordHash,
       role: params.role || 'STAFF',
+      isFrontDesk: params.isFrontDesk ?? false,
     },
   });
   return staff;
+}
+
+export async function setStaffFrontDeskPermission(
+  staffId: string,
+  isFrontDesk: boolean
+): Promise<StaffAccount | null> {
+  try {
+    const staff = await prisma.staffUser.update({
+      where: { id: staffId },
+      data: { isFrontDesk },
+    });
+    return staff;
+  } catch {
+    return null;
+  }
+}
+
+export async function getAllStaffUsers(): Promise<StaffAccount[]> {
+  const staffList = await prisma.staffUser.findMany({
+    orderBy: { createdAt: 'asc' },
+  });
+  return staffList;
 }
 
 
@@ -703,4 +728,251 @@ export async function resetRateLimit(key: string): Promise<void> {
   await prisma.rateLimit.deleteMany({
     where: { key },
   });
+}
+
+// ==========================================
+// Intending Students & Number Generation (Stage 2)
+// ==========================================
+
+export interface IntendingStudentInput {
+  name: string;
+  intendedClass: string;
+  sessionYear: string;
+  guardianName?: string | null;
+  guardianPhone?: string | null;
+  guardianEmail?: string | null;
+  notes?: string | null;
+  registeredById: string;
+}
+
+export interface IntendingStudentRecord {
+  id: string;
+  studentNumber: string;
+  name: string;
+  intendedClass: string;
+  sessionYear: string;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  guardianEmail: string | null;
+  notes: string | null;
+  registeredById: string;
+  registeredByName?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export { extractIntakeYear, formatStudentNumber } from './numbering';
+
+/**
+ * Atomically generate the next available student number and register an intending student.
+ * Guarantees race-safety under concurrent intake via PostgreSQL row-level locking on StudentNumberSequence,
+ * and verifies collision safety against BOTH intending_students and active students tables.
+ */
+export async function registerIntendingStudent(
+  input: IntendingStudentInput
+): Promise<{ success: boolean; student?: IntendingStudentRecord; error?: string }> {
+  try {
+    const intakeYear = extractIntakeYear(input.sessionYear);
+    const db = prisma as any;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const txAny = tx as any;
+      let candidateNumber = '';
+      let acquired = false;
+      const MAX_COLLISION_RETRIES = 50;
+
+      for (let attempt = 0; attempt < MAX_COLLISION_RETRIES; attempt++) {
+        // Atomic increment of the intake year sequence counter
+        const sequence = await txAny.studentNumberSequence.upsert({
+          where: { year: intakeYear },
+          create: { year: intakeYear, lastValue: 1 },
+          update: { lastValue: { increment: 1 } },
+        });
+
+        candidateNumber = formatStudentNumber(intakeYear, sequence.lastValue);
+
+        // Check for collisions across BOTH tables:
+        // 1. Check intending_students table
+        const existingIntending = await txAny.intendingStudent.findUnique({
+          where: { studentNumber: candidateNumber },
+        });
+        if (existingIntending) {
+          continue; // Collision detected, advance sequence
+        }
+
+        // 2. Check active students table
+        const existingActive = await tx.student.findUnique({
+          where: { studentNumber: candidateNumber },
+        });
+        if (existingActive) {
+          continue; // Collision detected, advance sequence
+        }
+
+        // Identifier is confirmed unique across both namespaces
+        acquired = true;
+        break;
+      }
+
+      if (!acquired) {
+        throw new Error('Unable to allocate a unique student number after multiple attempts.');
+      }
+
+      const created = await txAny.intendingStudent.create({
+        data: {
+          studentNumber: candidateNumber,
+          name: input.name.trim(),
+          intendedClass: input.intendedClass.trim(),
+          sessionYear: input.sessionYear.trim(),
+          guardianName: input.guardianName?.trim() || null,
+          guardianPhone: input.guardianPhone?.trim() || null,
+          guardianEmail: input.guardianEmail?.trim()?.toLowerCase() || null,
+          notes: input.notes?.trim() || null,
+          registeredById: input.registeredById,
+        },
+        include: {
+          registeredBy: {
+            select: { name: true },
+          },
+        },
+      });
+
+      return {
+        id: created.id,
+        studentNumber: created.studentNumber,
+        name: created.name,
+        intendedClass: created.intendedClass,
+        sessionYear: created.sessionYear,
+        guardianName: created.guardianName,
+        guardianPhone: created.guardianPhone,
+        guardianEmail: created.guardianEmail,
+        notes: created.notes,
+        registeredById: created.registeredById,
+        registeredByName: created.registeredBy?.name,
+        createdAt: created.createdAt,
+        updatedAt: created.updatedAt,
+      } as IntendingStudentRecord;
+    });
+
+    return { success: true, student: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to register intending student.';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Retrieve intending students with optional text search.
+ */
+export async function getIntendingStudents(
+  searchQuery?: string
+): Promise<IntendingStudentRecord[]> {
+  const db = prisma as any;
+  const where: any = {};
+
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const q = searchQuery.trim();
+    where.OR = [
+      { studentNumber: { contains: q, mode: 'insensitive' } },
+      { name: { contains: q, mode: 'insensitive' } },
+      { intendedClass: { contains: q, mode: 'insensitive' } },
+      { guardianName: { contains: q, mode: 'insensitive' } },
+      { guardianPhone: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+
+  const rows = await db.intendingStudent.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      registeredBy: {
+        select: { name: true },
+      },
+    },
+  });
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    studentNumber: r.studentNumber,
+    name: r.name,
+    intendedClass: r.intendedClass,
+    sessionYear: r.sessionYear,
+    guardianName: r.guardianName,
+    guardianPhone: r.guardianPhone,
+    guardianEmail: r.guardianEmail,
+    notes: r.notes,
+    registeredById: r.registeredById,
+    registeredByName: r.registeredBy?.name,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+/**
+ * Find a specific intending student by CUID.
+ */
+export async function findIntendingStudentById(
+  id: string
+): Promise<IntendingStudentRecord | null> {
+  const db = prisma as any;
+  const r = await db.intendingStudent.findUnique({
+    where: { id },
+    include: {
+      registeredBy: {
+        select: { name: true },
+      },
+    },
+  });
+
+  if (!r) return null;
+
+  return {
+    id: r.id,
+    studentNumber: r.studentNumber,
+    name: r.name,
+    intendedClass: r.intendedClass,
+    sessionYear: r.sessionYear,
+    guardianName: r.guardianName,
+    guardianPhone: r.guardianPhone,
+    guardianEmail: r.guardianEmail,
+    notes: r.notes,
+    registeredById: r.registeredById,
+    registeredByName: r.registeredBy?.name,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+/**
+ * Find an intending student by generated student number (e.g. SP-2026-0001).
+ */
+export async function findIntendingStudentByNumber(
+  studentNumber: string
+): Promise<IntendingStudentRecord | null> {
+  const db = prisma as any;
+  const r = await db.intendingStudent.findUnique({
+    where: { studentNumber: studentNumber.trim().toUpperCase() },
+    include: {
+      registeredBy: {
+        select: { name: true },
+      },
+    },
+  });
+
+  if (!r) return null;
+
+  return {
+    id: r.id,
+    studentNumber: r.studentNumber,
+    name: r.name,
+    intendedClass: r.intendedClass,
+    sessionYear: r.sessionYear,
+    guardianName: r.guardianName,
+    guardianPhone: r.guardianPhone,
+    guardianEmail: r.guardianEmail,
+    notes: r.notes,
+    registeredById: r.registeredById,
+    registeredByName: r.registeredBy?.name,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
 }

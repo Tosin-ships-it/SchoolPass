@@ -301,11 +301,50 @@ describe('SchoolPass Security Improvements Test Suite', () => {
       assert.equal(extractClientIp(reqInvalid), '127.0.0.1');
     });
 
-    it('supports Next.js Headers instances in addition to Request', () => {
+    it('supports standard Headers instances in addition to Request', () => {
       const headers = new Headers({
         'x-vercel-forwarded-for': '203.0.113.88',
       });
       assert.equal(extractClientIp(headers), '203.0.113.88');
+
+      const headersRealIp = new Headers({
+        'x-real-ip': '198.51.100.55',
+      });
+      assert.equal(extractClientIp(headersRealIp), '198.51.100.55');
+    });
+
+    it('supports Next.js headers-compatible objects with internal headers property without throwing', () => {
+      // Simulates Next.js ReadonlyHeaders adapter where an internal 'headers' property exists
+      // but does NOT have a .get() function (which previously threw headers.get is not a function)
+      const nextJsHeadersAdapter = {
+        headers: { host: 'localhost:3000', cookie: 'session=abc' }, // plain object without .get()
+        get(name) {
+          const lower = name.toLowerCase();
+          if (lower === 'x-vercel-forwarded-for') return '203.0.113.77';
+          if (lower === 'x-real-ip') return '198.51.100.66';
+          return null;
+        },
+      };
+
+      assert.equal(extractClientIp(nextJsHeadersAdapter), '203.0.113.77');
+
+      // Also verify when x-real-ip is the primary available header
+      const nextJsHeadersAdapterRealIp = {
+        headers: { host: 'localhost:3000' },
+        get(name) {
+          if (name.toLowerCase() === 'x-real-ip') return '198.51.100.66';
+          return null;
+        },
+      };
+      assert.equal(extractClientIp(nextJsHeadersAdapterRealIp), '198.51.100.66');
+    });
+
+    it('supports plain dictionary objects and request wrappers', () => {
+      const plainHeaders = { 'x-real-ip': '198.51.100.99' };
+      assert.equal(extractClientIp(plainHeaders), '198.51.100.99');
+
+      const wrapper = { headers: { 'x-real-ip': '198.51.100.100' } };
+      assert.equal(extractClientIp(wrapper), '198.51.100.100');
     });
   });
 
