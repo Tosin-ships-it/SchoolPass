@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import {
   hashPassword,
   verifyPassword,
+  needsRehash,
   generateSecureToken,
   hashToken,
   signSessionPayload,
@@ -21,10 +22,12 @@ import {
   findParentById,
   createParent,
   updateParent,
+  conditionallyRehashParentPassword,
   findStaffByEmail,
   findStaffById,
   createStaffUser,
   updateStaffPassword,
+  conditionallyRehashStaffPassword,
   saveVerificationToken,
   findVerificationTokenByHash,
   deleteVerificationToken,
@@ -525,20 +528,40 @@ export async function loginParent(
     return { success: false, error: 'Invalid email or password.' };
   }
 
-  // If user authenticated via untrimmed fallback, seamlessly migrate their stored hash to the trimmed password
-  if (migratedTrimmed) {
+  // Transparent Migration & Rehash (Argon2id upgrade and whitespace trimming):
+  // Await rehash if stored hash is legacy scrypt, parameters need upgrade, or untrimmed fallback matched.
+  // Uses optimistic concurrency check so concurrent password changes or resets are never overwritten.
+  if (needsRehash(parent.passwordHash) || migratedTrimmed) {
     try {
       const newHash = await hashPassword(trimmedPassword);
-      await updateParent(parent.id, { passwordHash: newHash });
+      const updated = await conditionallyRehashParentPassword(parent.id, parent.passwordHash, newHash);
+      if (updated) {
+        logEvent({
+          level: 'info',
+          event: migratedTrimmed ? 'parent_password_trimmed_migrated' : 'parent_password_rehashed',
+          actorType: 'parent',
+          actorId: parent.id,
+          outcome: 'success',
+        });
+      } else {
+        // Skipped safely if a concurrent password change or reset occurred
+        logEvent({
+          level: 'warn',
+          event: 'parent_password_rehash_skipped_concurrent_change',
+          actorType: 'parent',
+          actorId: parent.id,
+          outcome: 'failure',
+        });
+      }
+    } catch {
+      // Fail-safe: persistence or hashing error does not reject an already valid login
       logEvent({
-        level: 'info',
-        event: 'parent_password_trimmed_migrated',
+        level: 'error',
+        event: 'parent_password_rehash_failed',
         actorType: 'parent',
         actorId: parent.id,
-        outcome: 'success',
+        outcome: 'failure',
       });
-    } catch {
-      // Continue login even if background rehash update fails
     }
   }
 
@@ -627,20 +650,41 @@ export async function loginStaff(
     return { success: false, error: 'Invalid staff email or password.' };
   }
 
-  // If staff authenticated via untrimmed fallback, seamlessly migrate their stored hash to the trimmed password
-  if (migratedTrimmed) {
+  // Transparent Migration & Rehash (Argon2id upgrade and whitespace trimming):
+  // Await rehash if stored hash is legacy scrypt, parameters need upgrade, or untrimmed fallback matched.
+  // Uses optimistic concurrency check so concurrent password changes or resets are never overwritten.
+  // Sessions are explicitly preserved (not invalidated).
+  if (needsRehash(staff.passwordHash) || migratedTrimmed) {
     try {
       const newHash = await hashPassword(trimmedPassword);
-      await updateStaffPassword(staff.id, newHash, { invalidateSessions: false });
+      const updated = await conditionallyRehashStaffPassword(staff.id, staff.passwordHash, newHash);
+      if (updated) {
+        logEvent({
+          level: 'info',
+          event: migratedTrimmed ? 'staff_password_trimmed_migrated' : 'staff_password_rehashed',
+          actorType: 'staff',
+          actorId: staff.id,
+          outcome: 'success',
+        });
+      } else {
+        // Skipped safely if a concurrent password change or reset occurred
+        logEvent({
+          level: 'warn',
+          event: 'staff_password_rehash_skipped_concurrent_change',
+          actorType: 'staff',
+          actorId: staff.id,
+          outcome: 'failure',
+        });
+      }
+    } catch {
+      // Fail-safe: persistence or hashing error does not reject an already valid login
       logEvent({
-        level: 'info',
-        event: 'staff_password_trimmed_migrated',
+        level: 'error',
+        event: 'staff_password_rehash_failed',
         actorType: 'staff',
         actorId: staff.id,
-        outcome: 'success',
+        outcome: 'failure',
       });
-    } catch {
-      // Continue login even if background rehash update fails
     }
   }
 
@@ -1103,6 +1147,9 @@ export {
 };
 
 export type {
+  ParentAccount,
+  StaffAccount,
+  SessionRecord,
   ParentStudentLink,
   StudentLinkRequestRecord,
   LinkRequestStatus,

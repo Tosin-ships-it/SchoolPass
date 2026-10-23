@@ -56,9 +56,9 @@ export async function registerIntendingStudentAction(
       logEvent({
         level: 'warn',
         event: 'unauthorized_front_desk_intake_attempt',
-        actorType: authCheck.session?.role || 'unauthenticated',
+        actorType: authCheck.session?.role || 'anonymous',
         actorId: authCheck.session?.userId || 'unknown',
-        outcome: 'blocked',
+        outcome: 'failure',
       });
       return {
         success: false,
@@ -172,9 +172,9 @@ export async function toggleStaffFrontDeskAction(
       logEvent({
         level: 'warn',
         event: 'unauthorized_permission_toggle_attempt',
-        actorType: auth.session?.role || 'unauthenticated',
+        actorType: auth.session?.role || 'anonymous',
         actorId: auth.session?.userId || 'unknown',
-        outcome: 'blocked',
+        outcome: 'failure',
       });
       return {
         success: false,

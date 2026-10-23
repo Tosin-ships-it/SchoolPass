@@ -2,7 +2,7 @@ import 'server-only';
 import { after } from 'next/server.js';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
-import { logEvent } from '../logging/index.ts';
+import { logEvent } from '@/lib/logging';
 
 export interface SendWelcomeEmailParams {
   to: string;

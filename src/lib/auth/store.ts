@@ -176,6 +176,60 @@ export async function updateStaffPassword(
   }
 }
 
+/**
+ * Conditionally rehashes a parent's stored password only if the current database hash
+ * still matches the expected old hash that was verified during login.
+ * Guarantees that concurrent password changes or resets cannot be overwritten by background migration.
+ * Preserves user sessions intact.
+ */
+export async function conditionallyRehashParentPassword(
+  id: string,
+  expectedOldHash: string,
+  newHash: string
+): Promise<boolean> {
+  try {
+    const result = await prisma.parent.updateMany({
+      where: {
+        id,
+        passwordHash: expectedOldHash,
+      },
+      data: {
+        passwordHash: newHash,
+      },
+    });
+    return result.count > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Conditionally rehashes a staff user's stored password only if the current database hash
+ * still matches the expected old hash that was verified during login.
+ * Guarantees that concurrent password changes or resets cannot be overwritten by background migration.
+ * Explicitly preserves all active staff sessions.
+ */
+export async function conditionallyRehashStaffPassword(
+  id: string,
+  expectedOldHash: string,
+  newHash: string
+): Promise<boolean> {
+  try {
+    const result = await prisma.staffUser.updateMany({
+      where: {
+        id,
+        passwordHash: expectedOldHash,
+      },
+      data: {
+        passwordHash: newHash,
+      },
+    });
+    return result.count > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function createStaffUser(params: {
   name: string;
   email: string;
@@ -768,7 +822,8 @@ export interface IntendingStudentRecord {
   updatedAt: Date;
 }
 
-export { extractIntakeYear, formatStudentNumber } from './numbering';
+import { extractIntakeYear, formatStudentNumber } from './numbering';
+export { extractIntakeYear, formatStudentNumber };
 
 /**
  * Atomically generate the next available student number and register an intending student.

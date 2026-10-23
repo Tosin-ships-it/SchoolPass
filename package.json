@@ -8,10 +8,11 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --test \"src/lib/auth/*.test.mjs\"",
+    "test": "node --import ./src/lib/auth/test-loader.mjs --conditions=react-server --test \"src/lib/auth/*.test.mjs\"",
     "tokens": "node convert-tokens.js"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.2.2",
     "@prisma/client": "^6.4.1",
     "next": "^15.2.1",
     "nodemailer": "^10.1.3",

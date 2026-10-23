@@ -30,3 +30,6 @@ yarn-error.log*
 .vscode/
 .idea/
 .neon
+
+docs/Assessment/ASSESSMENT_READINESS_AUDIT.md
+docs/Assessment/Ship-and-Found-Five-Tasks.md

@@ -322,23 +322,39 @@ describe('SchoolPass Stage 1: Email Verification and Password Reset Delivery', (
     }
   });
 
-  it('preserves scrypt password hashing, verification, and timing-safe checks', async () => {
+  it('verifies modern Argon2id password hashing and backward-compatible scrypt verification', async () => {
     const password = 'SchoolPassSecretPassword2026!';
     const hash = await hashPassword(password);
 
-    // Verify format: scrypt$N=16384,r=8,p=1$salt$derivedKey
-    assert.ok(hash.startsWith('scrypt$N=16384,r=8,p=1$'), 'Password hash uses scrypt format');
-    assert.ok(!hash.startsWith('$argon2'), 'Argon2 is not used in Stage 1');
-    assert.ok(!hash.startsWith('$2a$') && !hash.startsWith('$2b$'), 'bcrypt is not used in Stage 1');
-    assert.ok(hash.split('$').length === 4, 'scrypt hash has 4 components');
+    // Verify format: $argon2id$v=19$m=65536,t=3,p=1$...
+    assert.ok(hash.startsWith('$argon2id$v=19$m=65536,t=3,p=1$'), 'Password hash uses standard Argon2id format');
+    assert.ok(!hash.startsWith('$2a$') && !hash.startsWith('$2b$'), 'bcrypt is not used');
 
-    // Verify valid password
+    // Verify valid Argon2id password
     const isValid = await verifyPassword(password, hash);
-    assert.equal(isValid, true, 'Valid password verifies correctly');
+    assert.equal(isValid, true, 'Valid password verifies correctly with Argon2id');
 
-    // Verify invalid password
+    // Verify invalid Argon2id password
     const isInvalid = await verifyPassword('WrongPassword123!', hash);
-    assert.equal(isInvalid, false, 'Invalid password is rejected');
+    assert.equal(isInvalid, false, 'Invalid password is rejected with Argon2id');
+
+    // Verify backward compatibility: legacy scrypt hash must continue to verify
+    const legacySalt = '0123456789abcdef0123456789abcdef';
+    // Pre-computed scrypt derivedKey for 'SchoolPassSecretPassword2026!' with salt and N=16384, r=8, p=1, length=64
+    const crypto = await import('node:crypto');
+    const legacyKey = await new Promise((resolve, reject) => {
+      crypto.scrypt(password, legacySalt, 64, { N: 16384, r: 8, p: 1 }, (err, key) => {
+        if (err) reject(err);
+        else resolve(key.toString('hex'));
+      });
+    });
+    const legacyScryptHash = `scrypt$N=16384,r=8,p=1$${legacySalt}$${legacyKey}`;
+
+    const legacyValid = await verifyPassword(password, legacyScryptHash);
+    assert.equal(legacyValid, true, 'Legacy scrypt hash verifies successfully');
+
+    const legacyInvalid = await verifyPassword('WrongPassword123!', legacyScryptHash);
+    assert.equal(legacyInvalid, false, 'Legacy scrypt hash rejects wrong password');
   });
 
   it('strictly isolates SHA-256 token hashing from password hashing', () => {
