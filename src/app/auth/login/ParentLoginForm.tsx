@@ -149,7 +149,7 @@ export function ParentLoginForm() {
           >
             Don&apos;t have an account yet?{' '}
             <Link
-              href="/auth/register"
+              href="/auth?view=register"
               style={{
                 color: 'var(--color-roles-primary)',
                 fontWeight: 600,
@@ -169,7 +169,7 @@ export function ParentLoginForm() {
           >
             School personnel?{' '}
             <Link
-              href="/auth/staff-login"
+              href="/auth?view=staff-login"
               style={{
                 color: 'var(--color-roles-secondary)',
                 fontWeight: 600,
@@ -281,7 +281,11 @@ export function ParentLoginForm() {
           </label>
 
           <Link
-            href="/auth/forgot-password"
+            href={
+              email && email.trim()
+                ? `/auth?view=forgot-password&email=${encodeURIComponent(email.trim().toLowerCase())}`
+                : '/auth?view=forgot-password'
+            }
             style={{
               fontFamily: 'var(--typography-body-small-fontfamily)',
               fontSize: 'var(--typography-body-small-fontsize)',

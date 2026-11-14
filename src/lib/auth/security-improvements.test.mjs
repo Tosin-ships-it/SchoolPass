@@ -67,6 +67,7 @@ describe('SchoolPass Security Improvements Test Suite', () => {
         email: 'ada@example.com',
         studentNumber: 'SP-2026-0001',
         password: '   Ada#Secure2026!   ',
+        acceptedTerms: true,
       });
       assert.equal(reg.password, 'Ada#Secure2026!');
 

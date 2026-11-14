@@ -19,6 +19,14 @@ const BLOCK_DURATION_MS = 15 * 60 * 1000; // 15-minute block
 // In-memory store keyed by IP address (or ip:action)
 const ipStore = new Map<string, RateLimitEntry>();
 
+interface ActorRateLimitEntry {
+  count: number;
+  windowStart: number;
+}
+
+// In-memory store keyed by authenticated actor (or actor:action)
+const actorStore = new Map<string, ActorRateLimitEntry>();
+
 // Last cleanup timestamp to prevent memory leaks from stale IPs
 let lastCleanupAt = Date.now();
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -227,6 +235,38 @@ export function recordIpFailedAttempt(
 }
 
 /**
+ * Fixed-window rate limit for an authenticated actor (for example, a staff
+ * member generating student numbers). Counts every request, not only failures.
+ */
+export function checkActorRateLimit(
+  actorId: string,
+  scope: string,
+  maxRequests = 30,
+  windowMs = 60 * 1000
+): { allowed: boolean; retryAfterSeconds?: number; remaining: number } {
+  const key = `${scope}:${actorId}`;
+  const now = Date.now();
+
+  let entry = actorStore.get(key);
+  if (!entry || now - entry.windowStart >= windowMs) {
+    entry = { count: 0, windowStart: now };
+    actorStore.set(key, entry);
+  }
+
+  if (entry.count >= maxRequests) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((entry.windowStart + windowMs - now) / 1000)
+    );
+    return { allowed: false, retryAfterSeconds, remaining: 0 };
+  }
+
+  entry.count += 1;
+  actorStore.set(key, entry);
+  return { allowed: true, remaining: maxRequests - entry.count };
+}
+
+/**
  * Create a standardized HTTP 429 Rate Limit Response with Retry-After header.
  */
 export function createRateLimitResponse(retryAfterSeconds = 900): Response {
@@ -259,5 +299,6 @@ export function resetIpRateLimit(ip: string, scope = 'auth'): void {
  */
 export function _clearRateLimitsForTesting(): void {
   ipStore.clear();
+  actorStore.clear();
 }
 

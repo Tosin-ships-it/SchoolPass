@@ -9,7 +9,7 @@ interface Props {
   initialActiveLinks: ParentStudentLink[];
 }
 
-export function StudentLinkSection({ initialRequests, initialActiveLinks }: Props) {
+export function StudentLinkSection({ initialRequests, initialActiveLinks, isEmailVerified }: Props) {
   const [studentNumber, setStudentNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

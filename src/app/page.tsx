@@ -607,26 +607,47 @@ export default async function HomePage({
                 </Link>
               </div>
             ) : (
-              <Link
-                href="/auth/register"
-                className="sp-btn-primary"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'var(--color-roles-primary)',
-                  color: 'var(--color-roles-on-primary)',
-                  fontFamily: 'var(--typography-label-large-fontfamily)',
-                  fontSize: 'var(--typography-label-large-fontsize)',
-                  fontWeight: 600,
-                  padding: '12px 24px',
-                  boxShadow: 'var(--effect-soft-shadow)',
-                  textDecoration: 'none',
-                  borderRadius: '0.5rem',
-                }}
-              >
-                Get Started
-              </Link>
+              <>
+                <Link
+                  href="/auth?view=login"
+                  className="sp-btn-secondary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--color-roles-surface-variant)',
+                    color: 'var(--color-roles-on-surface-variant)',
+                    fontFamily: 'var(--typography-label-large-fontfamily)',
+                    fontSize: 'var(--typography-label-large-fontsize)',
+                    fontWeight: 600,
+                    padding: '12px 24px',
+                    textDecoration: 'none',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/auth?view=register"
+                  className="sp-btn-primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'var(--color-roles-primary)',
+                    color: 'var(--color-roles-on-primary)',
+                    fontFamily: 'var(--typography-label-large-fontfamily)',
+                    fontSize: 'var(--typography-label-large-fontsize)',
+                    fontWeight: 600,
+                    padding: '12px 24px',
+                    boxShadow: 'var(--effect-soft-shadow)',
+                    textDecoration: 'none',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  Get Started
+                </Link>
+              </>
             )}
           </nav>
 
@@ -793,7 +814,28 @@ export default async function HomePage({
                   ) : (
                     <>
                       <Link
-                        href="/auth/register"
+                        href="/auth?view=login"
+                        className="sp-btn-secondary"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: 'var(--color-roles-surface-variant)',
+                          color: 'var(--color-roles-on-surface-variant)',
+                          fontFamily: 'var(--typography-label-large-fontfamily)',
+                          fontSize: 'var(--typography-label-large-fontsize)',
+                          fontWeight: 600,
+                          padding: '14px 28px',
+                          textDecoration: 'none',
+                          borderRadius: '0.5rem',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        Sign In
+                      </Link>
+                      <Link
+                        href="/auth?view=register"
                         className="sp-btn-primary"
                         style={{
                           display: 'inline-flex',
@@ -815,7 +857,7 @@ export default async function HomePage({
                         Get Started
                       </Link>
                       <Link
-                        href="/auth/staff-login"
+                        href="/auth?view=staff-login"
                         className="sp-btn-secondary"
                         style={{
                           display: 'inline-flex',
@@ -976,7 +1018,7 @@ export default async function HomePage({
                     }}
                   >
                     <Link
-                      href="/auth/register"
+                      href="/auth?view=register"
                       className="sp-btn-primary"
                       style={{
                         display: 'inline-flex',
@@ -997,7 +1039,7 @@ export default async function HomePage({
                     </Link>
 
                     <Link
-                      href="/auth/staff-login"
+                      href="/auth?view=staff-login"
                       className="sp-btn-secondary"
                       style={{
                         display: 'inline-flex',
@@ -1505,7 +1547,7 @@ export default async function HomePage({
 
                 <div style={{ textAlign: 'center', marginTop: '12px' }}>
                   <Link
-                    href="/auth/register"
+                    href="/auth?view=register"
                     className="sp-btn-primary"
                     style={{
                       display: 'inline-flex',

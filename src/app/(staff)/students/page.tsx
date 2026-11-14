@@ -7,11 +7,13 @@ import {
   assertFrontDeskAccess,
   getIntendingStudents,
   getAllStaffUsers,
+  getConfiguredClasses,
+  getConfiguredSessions,
 } from '@/lib/auth';
 import { StudentsManager } from './StudentsManager';
 
 export const metadata: Metadata = {
-  title: 'Prospective Students Intake | SchoolPass Staff',
+  title: 'Generate Student Number | SchoolPass Staff',
 };
 
 export default async function StudentsPage() {
@@ -103,9 +105,11 @@ export default async function StudentsPage() {
     );
   }
 
-  const [initialStudents, staffList] = await Promise.all([
+  const [initialStudents, staffList, availableClasses, availableSessions] = await Promise.all([
     getIntendingStudents(),
     session.role === 'admin' ? getAllStaffUsers() : Promise.resolve([]),
+    getConfiguredClasses(),
+    getConfiguredSessions(),
   ]);
 
   return (
@@ -231,7 +235,7 @@ export default async function StudentsPage() {
               margin: '0 0 6px 0',
             }}
           >
-            Front-Desk Prospective Student Intake
+            Front-Desk Student Number Generation
           </h1>
           <p
             style={{
@@ -241,7 +245,7 @@ export default async function StudentsPage() {
               margin: 0,
             }}
           >
-            Register prospective students, atomically allocate unique official identifiers (SP-YYYY-NNNN), and issue intake slips prior to formal admission.
+            Generate official student numbers (SP-YYYY-NNNN) for prospective students and issue intake slips prior to formal admission.
           </p>
         </div>
 
@@ -250,6 +254,8 @@ export default async function StudentsPage() {
           initialStudents={initialStudents}
           staffRole={session.role}
           staffList={staffList}
+          availableClasses={availableClasses}
+          availableSessions={availableSessions}
         />
 
         {/* Footer Navigation */}

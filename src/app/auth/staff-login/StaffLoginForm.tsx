@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AuthCard } from '../components/AuthCard';
@@ -17,9 +17,18 @@ export function StaffLoginForm() {
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const reason = params.get('reason');
+      if (reason === 'timeout' || reason === 'session_expired') {
+        setError('Your session has expired due to 15 minutes of inactivity. Please sign in again.');
+      }
+    }
+  }, []);
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.toLowerCase();
@@ -70,7 +79,7 @@ export function StaffLoginForm() {
       const res = await fetch('/api/auth/staff-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password, rememberMe }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json();
@@ -114,7 +123,7 @@ export function StaffLoginForm() {
           >
             Are you a parent or guardian?{' '}
             <Link
-              href="/auth/login"
+              href="/auth?view=login"
               style={{
                 color: 'var(--color-roles-primary)',
                 fontWeight: 600,
@@ -155,42 +164,6 @@ export function StaffLoginForm() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            marginBottom: '18px',
-          }}
-        >
-          <label
-            htmlFor="staff-remember-me"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontFamily: 'var(--typography-body-small-fontfamily)',
-              fontSize: 'var(--typography-body-small-fontsize)',
-              color: 'var(--color-roles-on-surface)',
-              userSelect: 'none',
-            }}
-          >
-            <input
-              id="staff-remember-me"
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              style={{
-                width: '16px',
-                height: '16px',
-                accentColor: 'var(--color-roles-secondary)',
-                cursor: 'pointer',
-              }}
-            />
-            <span>Remember me</span>
-          </label>
-        </div>
 
         <div style={{ marginTop: '20px' }}>
           <PrimaryButton

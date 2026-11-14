@@ -540,7 +540,8 @@ describe('SchoolPass Production Staff RBAC & Session Security Test Suite', async
         const html = await res.text();
         assert.ok(!html.includes('Access Restricted'), 'Front desk staff must not see Access Restricted');
         assert.ok(
-          html.includes('Prospective Students Intake') || html.includes('Register Prospective Student'),
+          html.includes('Generate Student Number') ||
+            html.includes('Front-Desk Student Number Generation'),
           'Intake UI must be rendered'
         );
       } finally {

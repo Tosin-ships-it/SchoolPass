@@ -332,6 +332,7 @@ export function ParentRegisterForm() {
   const [confirmPasswordTouched, setConfirmPasswordTouched] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [termsError, setTermsError] = useState<string | null>(null);
+  const [submitAnnouncement, setSubmitAnnouncement] = useState<string | null>(null);
 
   const [registeredEmail, setRegisteredEmail] = useState('');
   const [linkStatus, setLinkStatus] = useState<{
@@ -557,6 +558,7 @@ export function ParentRegisterForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSubmitAnnouncement(null);
 
     const nameValidationError = validateFullName(name);
     if (nameValidationError) {
@@ -601,7 +603,9 @@ export function ParentRegisterForm() {
     }
 
     if (!acceptedTerms) {
-      setTermsError('Please accept the Terms and Conditions and Privacy Policy to continue.');
+      const msg = 'Please accept the Terms and Conditions and Privacy Policy to continue.';
+      setTermsError(msg);
+      setSubmitAnnouncement(msg);
       document.getElementById('terms')?.focus();
       return;
     }
@@ -616,7 +620,9 @@ export function ParentRegisterForm() {
           name: name.trim(),
           email,
           password: trimmedPassword,
+          confirmPassword: trimmedConfirmPassword,
           studentNumber: studentNumber.trim().toUpperCase(),
+          acceptedTerms: true,
         }),
       });
 
@@ -627,6 +633,11 @@ export function ParentRegisterForm() {
         setTimeout(() => {
           document.getElementById('register-error-alert')?.focus();
         }, 50);
+        return;
+      }
+
+      if (data.isSoftGated && data.redirectTo) {
+        window.location.href = data.redirectTo;
         return;
       }
 
@@ -664,14 +675,15 @@ export function ParentRegisterForm() {
     !passwordError &&
     Boolean(confirmPassword) &&
     confirmPassword === password &&
-    !confirmPasswordError;
+    !confirmPasswordError &&
+    Boolean(acceptedTerms);
 
   if (isSuccess) {
     return (
       <AuthCard
         title="Check Your Email"
         subtitle="We sent an email verification link to complete your registration."
-        backHref="/auth/login"
+        backHref="/auth?view=login"
         backLabel="Back to Sign In"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -875,7 +887,7 @@ export function ParentRegisterForm() {
                 Development Testing Stub:
               </div>
               <Link
-                href={`/auth/verify-email?token=${registeredToken}`}
+                href={`/auth?view=verify-email&token=${registeredToken}`}
                 style={{
                   display: 'inline-block',
                   padding: '8px 14px',
@@ -894,7 +906,7 @@ export function ParentRegisterForm() {
 
           <div style={{ marginTop: '12px' }}>
             <Link
-              href="/auth/login"
+              href="/auth?view=login"
               style={{
                 display: 'block',
                 textAlign: 'center',
@@ -930,7 +942,7 @@ export function ParentRegisterForm() {
           >
             Already have an account?{' '}
             <Link
-              href="/auth/login"
+              href="/auth?view=login"
               style={{
                 color: 'var(--color-roles-primary)',
                 fontWeight: 600,
@@ -974,11 +986,10 @@ export function ParentRegisterForm() {
 
         <FormField
           id="studentNumber"
-          label="Child's Student Number"
+          label="Student Number"
           type="text"
           required
-          placeholder="e.g. SP-2026-0001"
-          helperText="Found on your child's admission letter or student ID card."
+          placeholder="SP-YYYY-NNNN"
           value={studentNumber}
           error={studentNumberError || undefined}
           onChange={handleStudentNumberChange}
@@ -1020,6 +1031,7 @@ export function ParentRegisterForm() {
               id="terms"
               type="checkbox"
               required
+              aria-required="true"
               checked={acceptedTerms}
               onChange={(e) => {
                 setAcceptedTerms(e.target.checked);
@@ -1153,9 +1165,27 @@ export function ParentRegisterForm() {
         </div>
 
         <div style={{ marginTop: '20px' }}>
-          <PrimaryButton type="submit" loading={loading} disabled={!isFormValid}>
+          <PrimaryButton type="submit" loading={loading} ariaDisabled={!isFormValid}>
             Create Account
           </PrimaryButton>
+        </div>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          style={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            padding: 0,
+            margin: '-1px',
+            overflow: 'hidden',
+            clip: 'rect(0, 0, 0, 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
+        >
+          {submitAnnouncement}
         </div>
       </form>
 

@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma } from '@/lib/db';
+import { logEvent } from '@/lib/logging';
 
 export interface ParentAccount {
   id: string;
@@ -17,6 +18,16 @@ export interface StaffAccount {
   name: string;
   email: string;
   passwordHash: string;
+  role: 'STAFF' | 'ADMIN';
+  isFrontDesk: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StaffSummary {
+  id: string;
+  name: string;
+  email: string;
   role: 'STAFF' | 'ADMIN';
   isFrontDesk: boolean;
   createdAt: Date;
@@ -131,6 +142,10 @@ export async function updateParent(id: string, updates: Partial<ParentAccount>):
         ...(updates.passwordHash !== undefined && { passwordHash: updates.passwordHash }),
         ...(updates.previousPasswordHashes !== undefined && { previousPasswordHashes: updates.previousPasswordHashes }),
         ...(updates.emailVerifiedAt !== undefined && { emailVerifiedAt: updates.emailVerifiedAt }),
+        ...(updates.isLocked !== undefined && { isLocked: updates.isLocked }),
+        ...(updates.deletionRequestedAt !== undefined && { deletionRequestedAt: updates.deletionRequestedAt }),
+        ...(updates.scheduledDeletionAt !== undefined && { scheduledDeletionAt: updates.scheduledDeletionAt }),
+        ...(updates.anonymizedAt !== undefined && { anonymizedAt: updates.anonymizedAt }),
       },
     });
     return parent;
@@ -252,11 +267,20 @@ export async function createStaffUser(params: {
 export async function setStaffFrontDeskPermission(
   staffId: string,
   isFrontDesk: boolean
-): Promise<StaffAccount | null> {
+): Promise<StaffSummary | null> {
   try {
     const staff = await prisma.staffUser.update({
       where: { id: staffId },
       data: { isFrontDesk },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isFrontDesk: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
     return staff;
   } catch {
@@ -264,9 +288,18 @@ export async function setStaffFrontDeskPermission(
   }
 }
 
-export async function getAllStaffUsers(): Promise<StaffAccount[]> {
+export async function getAllStaffUsers(): Promise<StaffSummary[]> {
   const staffList = await prisma.staffUser.findMany({
     orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isFrontDesk: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
   return staffList;
 }
@@ -385,6 +418,13 @@ export async function deleteSessionRecord(sessionId: string): Promise<void> {
   });
 }
 
+export async function touchStaffSessionRecord(sessionId: string, newExpiresAt: Date): Promise<void> {
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { expiresAt: newExpiresAt },
+  }).catch(() => {});
+}
+
 export async function deleteAllUserSessions(userId: string): Promise<void> {
   await prisma.session.deleteMany({
     where: { userId },
@@ -436,9 +476,33 @@ export async function isParentLinkedToStudent(parentId: string, studentId: strin
 
 export async function findStudentByNumber(studentNumber: string) {
   const normalized = studentNumber.trim().toUpperCase();
-  return prisma.student.findUnique({
+  const existing = await prisma.student.findUnique({
     where: { studentNumber: normalized },
   });
+  if (existing) {
+    return existing;
+  }
+
+  // Check if an intending student exists with this officially issued student number
+  const db = prisma as any;
+  if (db.intendingStudent) {
+    const intending = await db.intendingStudent.findUnique({
+      where: { studentNumber: normalized },
+    });
+    if (intending) {
+      return prisma.student.upsert({
+        where: { studentNumber: normalized },
+        update: {},
+        create: {
+          studentNumber: intending.studentNumber,
+          name: intending.name,
+          className: intending.intendedClass,
+        },
+      });
+    }
+  }
+
+  return null;
 }
 
 export async function findStudentById(studentId: string) {
@@ -822,6 +886,45 @@ export interface IntendingStudentRecord {
   updatedAt: Date;
 }
 
+export type IntendingStudentRegistrationErrorCode =
+  | 'duplicate'
+  | 'temporary'
+  | 'unexpected';
+
+const TEMPORARY_DATABASE_ERROR_CODES = new Set([
+  'P1001',
+  'P1002',
+  'P1008',
+  'P1017',
+  'P2024',
+  'P2034',
+]);
+
+export function classifyIntendingStudentError(
+  err: unknown
+): IntendingStudentRegistrationErrorCode {
+  const errorCode =
+    typeof (err as { code?: unknown })?.code === 'string'
+      ? (err as { code: string }).code
+      : undefined;
+
+  if (errorCode === 'P2002') return 'duplicate';
+  if (errorCode && TEMPORARY_DATABASE_ERROR_CODES.has(errorCode)) return 'temporary';
+
+  const errorName = err instanceof Error ? err.name : '';
+  const errorMessage = err instanceof Error ? err.message : '';
+
+  if (
+    errorName === 'PrismaClientInitializationError' ||
+    errorName === 'PrismaClientRustPanicError' ||
+    /unable to allocate a unique student number/i.test(errorMessage)
+  ) {
+    return 'temporary';
+  }
+
+  return 'unexpected';
+}
+
 import { extractIntakeYear, formatStudentNumber } from './numbering';
 export { extractIntakeYear, formatStudentNumber };
 
@@ -832,7 +935,12 @@ export { extractIntakeYear, formatStudentNumber };
  */
 export async function registerIntendingStudent(
   input: IntendingStudentInput
-): Promise<{ success: boolean; student?: IntendingStudentRecord; error?: string }> {
+): Promise<{
+  success: boolean;
+  student?: IntendingStudentRecord;
+  error?: string;
+  errorCode?: IntendingStudentRegistrationErrorCode;
+}> {
   try {
     const intakeYear = extractIntakeYear(input.sessionYear);
     const db = prisma as any;
@@ -898,6 +1006,20 @@ export async function registerIntendingStudent(
         },
       });
 
+      // Synchronize with core Student table so parent registration and link requests can immediately locate the record
+      await tx.student.upsert({
+        where: { studentNumber: candidateNumber },
+        update: {
+          name: input.name.trim(),
+          className: input.intendedClass.trim(),
+        },
+        create: {
+          studentNumber: candidateNumber,
+          name: input.name.trim(),
+          className: input.intendedClass.trim(),
+        },
+      });
+
       return {
         id: created.id,
         studentNumber: created.studentNumber,
@@ -917,8 +1039,26 @@ export async function registerIntendingStudent(
 
     return { success: true, student: result };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to register intending student.';
-    return { success: false, error: message };
+    const errorName = err instanceof Error ? err.name : 'UnknownError';
+    const errorCode =
+      typeof (err as { code?: unknown })?.code === 'string'
+        ? (err as { code: string }).code
+        : undefined;
+    const classifiedCode = classifyIntendingStudentError(err);
+
+    logEvent({
+      level: 'error',
+      event: 'student_number_generation_error',
+      actorType: 'system',
+      outcome: 'failure',
+      details: { errorName, errorCode, classifiedCode },
+    });
+
+    return {
+      success: false,
+      error: 'Unable to generate a student number. Please try again.',
+      errorCode: classifiedCode,
+    };
   }
 }
 
@@ -1037,4 +1177,236 @@ export async function findIntendingStudentByNumber(
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
+}
+
+// ==========================================
+// Account Deletion & Compliance Lifecycle (Task 5 / NDPA 2023 §34 & CAMA 2020 §375)
+// ==========================================
+
+export async function requestParentAccountDeletion(
+  parentId: string,
+  gracePeriodDays = 7
+): Promise<{ success: boolean; scheduledDeletionAt: Date }> {
+  const scheduledDeletionAt = new Date(Date.now() + gracePeriodDays * 24 * 60 * 60 * 1000);
+
+  await updateParent(parentId, {
+    isLocked: true,
+    deletionRequestedAt: new Date(),
+    scheduledDeletionAt,
+  });
+
+  // Step 6 Req 1: Immediate lock revokes all active sessions across devices
+  await deleteAllUserSessions(parentId);
+
+  return { success: true, scheduledDeletionAt };
+}
+
+export async function cancelParentAccountDeletion(parentId: string): Promise<boolean> {
+  const updated = await updateParent(parentId, {
+    isLocked: false,
+    deletionRequestedAt: null,
+    scheduledDeletionAt: null,
+  });
+  return Boolean(updated);
+}
+
+export async function findExpiredDeletionCandidates(
+  cutoffDate: Date = new Date()
+): Promise<ParentAccount[]> {
+  try {
+    const records = await prisma.parent.findMany({
+      where: {
+        isLocked: true,
+        scheduledDeletionAt: { lte: cutoffDate },
+        anonymizedAt: null,
+      },
+    });
+    return records;
+  } catch {
+    return [];
+  }
+}
+
+export async function anonymizeParentAccount(
+  parentId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const parent = await findParentById(parentId);
+    if (!parent) return { success: false, error: 'Parent not found' };
+
+    const { createHash } = await import('node:crypto');
+    const emailHash = createHash('sha256').update(parent.email).digest('hex').substring(0, 12);
+    const shortId = parent.id.substring(parent.id.length - 6);
+
+    // Atomic transaction: remove student links, overwrite PII, PRESERVE payment rows
+    await prisma.$transaction(async (tx) => {
+      // 1. Remove active student links and pending link requests
+      await tx.parentStudent.deleteMany({ where: { parentId } });
+      await tx.studentLinkRequest.deleteMany({ where: { parentId } });
+      await tx.arrivalConfirmation.deleteMany({ where: { parentId } });
+      await tx.aiUsageDaily.deleteMany({ where: { parentId } });
+
+      // 2. Anonymize Parent identity
+      await tx.parent.update({
+        where: { id: parentId },
+        data: {
+          name: `Anonymised Parent (${shortId})`,
+          email: `deleted_${emailHash}@anonymized.schoolpass.local`,
+          passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$purged_account_no_access',
+          emailVerifiedAt: null,
+          anonymizedAt: new Date(),
+        },
+      });
+
+      // Step 6 Req 2: Payment records are RETAINED in full for CAMA 2020 §375 6-year retention.
+    });
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Standard default school classes covering Creche, Nursery, Primary, and Lower Secondary (JSS) tiers.
+ */
+export const DEFAULT_SCHOOL_CLASSES: readonly string[] = [
+  'Creche',
+  'Nursery 1',
+  'Nursery 2',
+  'Primary 1',
+  'Primary 2',
+  'Primary 3',
+  'Primary 4',
+  'Primary 5',
+  'Primary 6',
+  'JSS 1',
+  'JSS 2',
+  'JSS 3',
+];
+
+/**
+ * Retrieve configured school classes dynamically from the database.
+ * Checks SchoolSetting for configured classes, and falls back to standard default classes
+ * (Creche, Nursery 1-2, Primary 1-6, JSS 1-3) combined with distinct active student streams.
+ */
+export async function getConfiguredClasses(): Promise<string[]> {
+  try {
+    const db = prisma as any;
+
+    // 1. Check SchoolSetting for configured classes (JSON array or comma-separated)
+    if (db.schoolSetting) {
+      try {
+        const setting = await db.schoolSetting.findFirst({
+          where: {
+            key: { in: ['configured_classes', 'school_classes'] },
+          },
+        });
+
+        if (setting?.value) {
+          try {
+            const parsed = JSON.parse(setting.value);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed.map(String).map((c: string) => c.trim()).filter(Boolean);
+            }
+          } catch {
+            const split = setting.value.split(',').map((c: string) => c.trim()).filter(Boolean);
+            if (split.length > 0) return split;
+          }
+        }
+      } catch {
+        // Fall through to default classes if SchoolSetting query fails
+      }
+    }
+
+    // 2. Base default classes covering Creche, Nursery, Primary, and Lower Secondary (JSS 1-3)
+    const classSet = new Set<string>(DEFAULT_SCHOOL_CLASSES);
+
+    // 3. Include any distinct active classes/arms from Student table (e.g. JSS 1A, JSS 1B)
+    if (db.student) {
+      try {
+        const studentClasses = await db.student.findMany({
+          select: { className: true },
+          distinct: ['className'],
+          orderBy: { className: 'asc' },
+        });
+
+        for (const s of studentClasses) {
+          const trimmed = s.className?.trim();
+          if (trimmed) {
+            classSet.add(trimmed);
+          }
+        }
+      } catch {
+        // Retain DEFAULT_SCHOOL_CLASSES on query failure
+      }
+    }
+
+    return Array.from(classSet);
+  } catch (err) {
+    console.error('Failed to load configured classes:', err);
+    return Array.from(DEFAULT_SCHOOL_CLASSES);
+  }
+}
+
+/**
+ * Retrieve configured academic sessions dynamically from the database.
+ * Checks SchoolSetting, and falls back to distinct sessions recorded in IntendingStudent.
+ */
+export async function getConfiguredSessions(): Promise<string[]> {
+  try {
+    const db = prisma as any;
+
+    // 1. Check SchoolSetting for configured sessions
+    if (db.schoolSetting) {
+      try {
+        const setting = await db.schoolSetting.findFirst({
+          where: {
+            key: { in: ['configured_sessions', 'academic_sessions', 'current_session', 'academic_terms'] },
+          },
+        });
+
+        if (setting?.value) {
+          try {
+            const parsed = JSON.parse(setting.value);
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.sessionYear && typeof parsed.sessionYear === 'string') {
+                return [parsed.sessionYear.trim()];
+              }
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed.map(String).map((s: string) => s.trim()).filter(Boolean);
+              }
+            }
+          } catch {
+            const split = setting.value.split(',').map((s: string) => s.trim()).filter(Boolean);
+            if (split.length > 0) return split;
+          }
+        }
+      } catch {
+        // Fall through to IntendingStudent query
+      }
+    }
+
+    // 2. Query distinct sessions from IntendingStudent
+    if (db.intendingStudent) {
+      const recordedSessions = await db.intendingStudent.findMany({
+        select: { sessionYear: true },
+        distinct: ['sessionYear'],
+        orderBy: { sessionYear: 'desc' },
+      });
+
+      const sessions = recordedSessions
+        .map((s: any) => s.sessionYear?.trim())
+        .filter((s: string) => Boolean(s && s.length > 0));
+
+      if (sessions.length > 0) {
+        return Array.from(new Set(sessions));
+      }
+    }
+
+    return ['2026/2027'];
+  } catch (err) {
+    console.error('Failed to load configured sessions:', err);
+    return [];
+  }
 }

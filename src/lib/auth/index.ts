@@ -19,6 +19,10 @@ import {
 } from './rateLimit';
 import {
   findParentByEmail,
+  requestParentAccountDeletion,
+  cancelParentAccountDeletion,
+  anonymizeParentAccount,
+  findExpiredDeletionCandidates,
   findParentById,
   createParent,
   updateParent,
@@ -37,6 +41,7 @@ import {
   createSessionRecord,
   findSessionRecord,
   deleteSessionRecord,
+  touchStaffSessionRecord,
   deleteAllUserSessions,
   getParentStudentLinks,
   isParentLinkedToStudent,
@@ -52,6 +57,9 @@ import {
   removeParentStudentLink,
   registerIntendingStudent,
   getIntendingStudents,
+  DEFAULT_SCHOOL_CLASSES,
+  getConfiguredClasses,
+  getConfiguredSessions,
   findIntendingStudentById,
   findIntendingStudentByNumber,
   setStaffFrontDeskPermission,
@@ -60,6 +68,7 @@ import {
   formatStudentNumber,
   type ParentAccount,
   type StaffAccount,
+  type StaffSummary,
   type SessionRecord,
   type ParentStudentLink,
   type StudentLinkRequestRecord,
@@ -90,8 +99,30 @@ import {
 } from './email';
 
 export const SESSION_COOKIE_NAME = 'schoolpass_session';
-export const SESSION_DURATION_DAYS = 7; // RULES_CONFIG Rule 5: 7 days
+export const SESSION_DURATION_DAYS = 7;
+export const DELETION_GRACE_PERIOD_DAYS = 7; // Step 6: 7-day grace period before purge // RULES_CONFIG Rule 5: 7 days
 export const SESSION_DURATION_MS = SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * Staff Session Inactivity Timeout Configuration:
+ * Staff accounts must not remain authenticated indefinitely, especially on shared school computers.
+ * 15-minute inactivity timeout enforced on the server across all staff roles (Admin, Front Desk, General Staff).
+ */
+export const STAFF_INACTIVITY_TIMEOUT_MINUTES = 15;
+export const STAFF_INACTIVITY_TIMEOUT_MS = STAFF_INACTIVITY_TIMEOUT_MINUTES * 60 * 1000;
+
+/**
+ * Soft Gating vs Hard Gating Policy Configuration:
+ * - Hard Gating: Stops user after registration, requires email verification before any session is issued.
+ * - Soft Gating: Creates account and logs user in immediately with persistent warning banner and server-side mutation barriers.
+ * Active by default on feat/soft-gating branch unless GATING_MODE=hard is explicitly set.
+ */
+export function isSoftGatingEnabled(): boolean {
+  if (process.env.NEXT_PUBLIC_GATING_MODE === 'hard' || process.env.GATING_MODE === 'hard') {
+    return false;
+  }
+  return true;
+}
 
 export interface AuthSession {
   sessionId: string;
@@ -105,22 +136,48 @@ export interface AuthSession {
   isLinked?: boolean; // For parents: whether they have any linked students
 }
 
+export interface SessionCookieOptions {
+  isPersistent?: boolean;
+}
+
 // Helper to set session cookie
-export async function setSessionCookie(signedSessionToken: string): Promise<void> {
+export async function setSessionCookie(
+  signedSessionToken: string,
+  options?: SessionCookieOptions | boolean
+): Promise<void> {
+  const isPersistent = typeof options === 'boolean' ? options : (options?.isPersistent ?? true);
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, signedSessionToken, {
+
+  const cookieOptions: {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: 'lax';
+    path: string;
+    maxAge?: number;
+  } = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: SESSION_DURATION_DAYS * 24 * 60 * 60,
-  });
+  };
+
+  // Only persistent sessions (e.g. parents) specify maxAge.
+  // Staff sessions omit maxAge to produce a browser-session cookie.
+  if (isPersistent) {
+    cookieOptions.maxAge = SESSION_DURATION_DAYS * 24 * 60 * 60;
+  }
+
+  cookieStore.set(SESSION_COOKIE_NAME, signedSessionToken, cookieOptions);
 }
 
 // Helper to clear session cookie
 export async function clearSessionCookie(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE_NAME);
+  try {
+    const cookieStore = await cookies();
+    cookieStore.delete(SESSION_COOKIE_NAME);
+  } catch {
+    // Gracefully handle contexts where cookies cannot be mutated (e.g. RSC render or test harness)
+  }
 }
 
 /**
@@ -136,11 +193,16 @@ export async function getSession(): Promise<AuthSession | null> {
     if (!sessionId) return null;
 
     const session = await findSessionRecord(sessionId);
-    if (!session) return null;
+    if (!session) {
+      await clearSessionCookie();
+      return null;
+    }
 
     if (session.role === 'parent') {
       const parent = await findParentById(session.userId);
-      if (!parent || !parent.emailVerifiedAt) return null;
+      if (!parent) return null;
+      if (parent.isLocked) return null; // Deletion request locks account immediately
+      if (!isSoftGatingEnabled() && !parent.emailVerifiedAt) return null;
 
       const links = await getParentStudentLinks(parent.id);
       return {
@@ -153,10 +215,23 @@ export async function getSession(): Promise<AuthSession | null> {
           email: parent.email,
         },
         isLinked: links.length > 0,
+        isEmailVerified: Boolean(parent.emailVerifiedAt),
+        emailVerifiedAt: parent.emailVerifiedAt,
       };
     } else {
       const staff = await findStaffById(session.userId);
       if (!staff) return null;
+
+      // Staff Inactivity Timeout Sliding Window:
+      // Slide the session expiry to 15 minutes from now for active staff.
+      // Throttle DB updates so we only update if at least 15 seconds have elapsed.
+      const now = Date.now();
+      const currentRemainingMs = session.expiresAt.getTime() - now;
+      if (currentRemainingMs < STAFF_INACTIVITY_TIMEOUT_MS - 15_000) {
+        const nextExpiresAt = new Date(now + STAFF_INACTIVITY_TIMEOUT_MS);
+        await touchStaffSessionRecord(session.id, nextExpiresAt);
+        session.expiresAt = nextExpiresAt;
+      }
 
       return {
         sessionId: session.id,
@@ -276,6 +351,14 @@ export async function registerParent(params: {
     return { success: false, error: 'Please enter your full name.' };
   }
 
+  const nameParts = name.split(/\s+/).filter(Boolean);
+  if (nameParts.length < 2) {
+    return { success: false, error: 'Please enter your first and last name.' };
+  }
+  if (!nameParts.every((part) => part.length >= 2)) {
+    return { success: false, error: 'Each name must be at least 2 characters long.' };
+  }
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     return { success: false, error: 'Please enter a valid email address.' };
@@ -351,11 +434,22 @@ export async function registerParent(params: {
     studentLink = await submitStudentLinkRequest(parent.id, params.studentNumber.trim());
   }
 
+  // Soft Gating: Issue active authenticated session immediately upon registration
+  let isSoftGated = false;
+  if (isSoftGatingEnabled()) {
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+    const sessionRecord = await createSessionRecord(parent.id, 'parent', expiresAt);
+    const signedToken = signSessionPayload(sessionRecord.id);
+    await setSessionCookie(signedToken);
+    isSoftGated = true;
+  }
+
   return {
     success: true,
     verificationToken: rawToken,
     parentId: parent.id,
     studentLink,
+    isSoftGated,
   };
 }
 
@@ -481,15 +575,7 @@ export async function loginParent(
   const email = emailInput.trim().toLowerCase();
   const trimmedPassword = passwordInput.trim();
 
-  const rateCheck = checkIpRateLimit(ip, 'parent_auth');
-  if (!rateCheck.allowed) {
-    return {
-      success: false,
-      error: `Too many failed sign-in attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
-      errorCode: 'RATE_LIMITED',
-    };
-  }
-
+  
   const parent = await findParentByEmail(email);
   if (!parent) {
     recordIpFailedAttempt(ip, 'parent_auth');
@@ -501,6 +587,38 @@ export async function loginParent(
     });
     return { success: false, error: 'Invalid email or password.' };
   }
+
+  // Account Deletion Safeguard: Check if account is locked / scheduled for deletion
+  if (parent.isLocked) {
+    if (parent.anonymizedAt || (parent.scheduledDeletionAt && parent.scheduledDeletionAt.getTime() <= Date.now())) {
+      return {
+        success: false,
+        error: 'This account has been permanently deleted.',
+        errorCode: 'ACCOUNT_DELETED',
+      };
+    }
+
+    if (parent.scheduledDeletionAt && parent.scheduledDeletionAt.getTime() > Date.now()) {
+      const scheduledDateStr = parent.scheduledDeletionAt.toISOString().split('T')[0];
+      return {
+        success: false,
+        error: `Your account is scheduled for deletion on ${scheduledDateStr}. You have a 7-day grace period to cancel deletion and restore your account.`,
+        errorCode: 'ACCOUNT_SCHEDULED_FOR_DELETION',
+        canCancel: true,
+        scheduledDeletionAt: parent.scheduledDeletionAt,
+      };
+    }
+  }
+
+  const rateCheck = checkIpRateLimit(ip, 'parent_auth');
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Too many failed sign-in attempts. Please try again in ${rateCheck.retryAfterSeconds} seconds.`,
+      errorCode: 'RATE_LIMITED',
+    };
+  }
+
 
   // Safe Two-Stage Verification:
   // 1. Primary check against trimmed password
@@ -565,7 +683,7 @@ export async function loginParent(
     }
   }
 
-  if (!parent.emailVerifiedAt) {
+  if (!parent.emailVerifiedAt && !isSoftGatingEnabled()) {
     return {
       success: false,
       error: 'Please verify your email address before signing in. Check your inbox for the verification link.',
@@ -691,10 +809,10 @@ export async function loginStaff(
   // Under Natural Expiry policy, successful logins do not wipe the shared IP counter.
 
   const role = staff.role.toLowerCase() as 'staff' | 'admin';
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+  const expiresAt = new Date(Date.now() + STAFF_INACTIVITY_TIMEOUT_MS);
   const session = await createSessionRecord(staff.id, role, expiresAt);
   const signedToken = signSessionPayload(session.id);
-  await setSessionCookie(signedToken);
+  await setSessionCookie(signedToken, false);
 
   logEvent({
     level: 'info',
@@ -1149,6 +1267,7 @@ export {
 export type {
   ParentAccount,
   StaffAccount,
+  StaffSummary,
   SessionRecord,
   ParentStudentLink,
   StudentLinkRequestRecord,
@@ -1164,12 +1283,16 @@ export type {
 export {
   registerIntendingStudent,
   getIntendingStudents,
+  DEFAULT_SCHOOL_CLASSES,
+  getConfiguredClasses,
+  getConfiguredSessions,
   findIntendingStudentById,
   findIntendingStudentByNumber,
   setStaffFrontDeskPermission,
   getAllStaffUsers,
   extractIntakeYear,
   formatStudentNumber,
+  touchStaffSessionRecord,
 };
 
 export { determineDashboardLinkState, type DashboardLinkState } from './dashboard';
@@ -1179,8 +1302,10 @@ export {
   resetIpRateLimit,
   extractClientIp,
   createRateLimitResponse,
+  checkActorRateLimit,
   isValidIp,
 } from './rateLimit';
+export { runIdempotent } from './idempotency';
 export {
   validatePasswordStrength,
   validatePasswordStrengthAsync,
@@ -1194,3 +1319,84 @@ export {
 
 
 
+
+/**
+ * Request account deletion with mandatory password verification (Step 6 Req 1).
+ * Locks the account immediately, revokes all sessions, and starts the 7-day grace period.
+ */
+export async function requestAccountDeletion(
+  parentId: string,
+  passwordConfirmation: string
+): Promise<{
+  success: boolean;
+  error?: string;
+  scheduledDeletionAt?: string;
+}> {
+  const parent = await findParentById(parentId);
+  if (!parent) {
+    return { success: false, error: 'Account not found.' };
+  }
+
+  const passwordValid = await verifyPassword(passwordConfirmation.trim(), parent.passwordHash);
+  if (!passwordValid) {
+    return { success: false, error: 'Invalid password. Password confirmation is required to delete your account.' };
+  }
+
+  const result = await requestParentAccountDeletion(parentId, DELETION_GRACE_PERIOD_DAYS);
+  await clearSessionCookie();
+
+  logEvent({
+    level: 'info',
+    event: 'parent_account_deletion_requested',
+    actorType: 'parent',
+    actorId: parentId,
+    outcome: 'success',
+  });
+
+  return {
+    success: true,
+    scheduledDeletionAt: result.scheduledDeletionAt.toISOString(),
+  };
+}
+
+/**
+ * Cancel a pending account deletion request during the 7-day grace period.
+ * Requires valid password authentication, clears lock state, and restores access.
+ */
+export async function cancelAccountDeletion(
+  email: string,
+  passwordConfirmation: string
+): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const parent = await findParentByEmail(email.trim().toLowerCase());
+  if (!parent) {
+    return { success: false, error: 'Account not found.' };
+  }
+
+  if (!parent.isLocked) {
+    return { success: false, error: 'Account is not currently scheduled for deletion.' };
+  }
+
+  if (parent.anonymizedAt) {
+    return { success: false, error: 'This account has already been permanently purged and cannot be restored.' };
+  }
+
+  const passwordValid = await verifyPassword(passwordConfirmation.trim(), parent.passwordHash);
+  if (!passwordValid) {
+    return { success: false, error: 'Invalid password.' };
+  }
+
+  await cancelParentAccountDeletion(parent.id);
+
+  logEvent({
+    level: 'info',
+    event: 'parent_account_deletion_cancelled',
+    actorType: 'parent',
+    actorId: parent.id,
+    outcome: 'success',
+  });
+
+  return { success: true };
+}

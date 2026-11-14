@@ -62,7 +62,7 @@ function VerifyEmailContent() {
       <AuthCard
         title="Email Verified"
         subtitle="Your email address has been successfully confirmed."
-        backHref="/auth/login"
+        backHref="/auth?view=login"
         backLabel="Sign In"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -72,7 +72,7 @@ function VerifyEmailContent() {
           />
 
           <Link
-            href="/auth/login"
+            href="/auth?view=login"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -99,7 +99,7 @@ function VerifyEmailContent() {
     <AuthCard
       title="Verify Your Email"
       subtitle="Confirming your SchoolPass registration."
-      backHref="/auth/login"
+      backHref="/auth?view=login"
       backLabel="Sign In"
     >
       {error && <AlertBox id="verify-email-error" type="error" message={error} />}
@@ -167,7 +167,7 @@ function VerifyEmailContent() {
 
           <div style={{ marginTop: '16px', textAlign: 'center' }}>
             <Link
-              href="/auth/login"
+              href="/auth?view=login"
               style={{
                 fontFamily: 'var(--typography-body-small-fontfamily)',
                 fontSize: 'var(--typography-body-small-fontsize)',

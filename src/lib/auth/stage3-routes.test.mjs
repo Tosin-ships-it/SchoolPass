@@ -358,6 +358,7 @@ describe('SchoolPass Stage 3: Core Authentication Routes Validation', async () =
         email: 'chioma@example.com',
         password: 'ValidPassword123!',
         studentNumber: 'SP-2026-0001',
+        acceptedTerms: true,
       };
       if (isServerRunning) {
         const res = await fetch(`${BASE_URL}/api/auth/register`, {
@@ -373,6 +374,117 @@ describe('SchoolPass Stage 3: Core Authentication Routes Validation', async () =
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+        });
+        const result = await validateJsonBody(req, parentRegisterSchema);
+        assert.equal(result.success, false);
+      }
+    });
+
+    it('rejects single-word name with status 400 (server-side defense)', async () => {
+      const payload = {
+        name: 'BypassUser',
+        email: 'chioma@example.com',
+        password: 'ValidPassword123!',
+        studentNumber: 'SP-2026-0001',
+        acceptedTerms: true,
+      };
+      if (isServerRunning) {
+        const res = await fetch(`${BASE_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.equal(data.error, 'Please enter your first and last name.');
+      } else {
+        const req = new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await validateJsonBody(req, parentRegisterSchema);
+        assert.equal(result.success, false);
+      }
+    });
+
+    it('rejects missing Terms acceptance with status 400', async () => {
+      const payload = {
+        name: 'Chioma Adeyemi',
+        email: 'chioma@example.com',
+        password: 'ValidPassword123!',
+        studentNumber: 'SP-2026-0001',
+      };
+      if (isServerRunning) {
+        const res = await fetch(`${BASE_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.equal(data.error, 'You must accept the Terms of Service and Privacy Policy.');
+      } else {
+        const req = new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await validateJsonBody(req, parentRegisterSchema);
+        assert.equal(result.success, false);
+      }
+    });
+
+    it('rejects mismatched password confirmation with status 400', async () => {
+      const payload = {
+        name: 'Chioma Adeyemi',
+        email: 'chioma@example.com',
+        password: 'ValidPassword123!',
+        confirmPassword: 'MismatchPassword123!',
+        studentNumber: 'SP-2026-0001',
+        acceptedTerms: true,
+      };
+      if (isServerRunning) {
+        const res = await fetch(`${BASE_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.equal(data.error, 'Passwords do not match.');
+      } else {
+        const req = new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const result = await validateJsonBody(req, parentRegisterSchema);
+        assert.equal(result.success, false);
+      }
+    });
+
+    it('rejects direct API request bypass and produces zero database side effects', async () => {
+      const directAttackPayload = {
+        name: 'BypassUser',
+        email: 'direct_attack_prevented_test@example.com',
+        password: 'ValidPassword123!',
+        studentNumber: 'SP-2026-0001',
+      };
+      if (isServerRunning) {
+        const res = await fetch(`${BASE_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(directAttackPayload),
+        });
+        assert.equal(res.status, 400);
+        const data = await res.json();
+        assert.ok(data.error);
+      } else {
+        const req = new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(directAttackPayload),
         });
         const result = await validateJsonBody(req, parentRegisterSchema);
         assert.equal(result.success, false);

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import React from 'react';
+import { getSession } from '@/lib/auth';
+import { UnverifiedEmailBanner } from './components/UnverifiedEmailBanner';
 
 export const metadata: Metadata = {
   robots: {
@@ -14,10 +16,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ParentLayout({
+export default async function ParentLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  const session = await getSession();
+
+  return (
+    <>
+      {session && !session.isEmailVerified && (
+        <UnverifiedEmailBanner email={session.user.email} />
+      )}
+      {children}
+    </>
+  );
 }

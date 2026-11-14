@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
+import { StaffSessionTracker } from './StaffSessionTracker';
 
 export const metadata: Metadata = {
   robots: {
@@ -27,5 +28,10 @@ export default async function StaffLayout({
     redirect('/auth/staff-login');
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <StaffSessionTracker timeoutMinutes={15} />
+      {children}
+    </>
+  );
 }

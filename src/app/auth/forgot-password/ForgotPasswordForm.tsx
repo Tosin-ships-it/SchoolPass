@@ -2,11 +2,16 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { AuthCard } from '../components/AuthCard';
 import { FormField, PrimaryButton, AlertBox, isDevStubsEnabled } from '../components/AuthFormElements';
 
-export function ForgotPasswordForm() {
-  const [email, setEmail] = useState('');
+export function ForgotPasswordForm({ initialEmail }: { initialEmail?: string } = {}) {
+  const searchParams = useSearchParams();
+  const queryEmail = searchParams ? searchParams.get('email') || '' : '';
+  const resolvedEmail = (initialEmail ?? queryEmail).trim().toLowerCase();
+
+  const [email, setEmail] = useState(resolvedEmail);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -52,7 +57,7 @@ export function ForgotPasswordForm() {
       <AuthCard
         title="Check Your Inbox"
         subtitle="Password reset instructions"
-        backHref="/auth/login"
+        backHref="/auth?view=login"
         backLabel="Back to Sign In"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -93,7 +98,7 @@ export function ForgotPasswordForm() {
                 Development Testing Stub:
               </div>
               <Link
-                href={`/auth/reset-password?token=${devResetToken}`}
+                href={`/auth?view=reset-password&token=${devResetToken}`}
                 style={{
                   display: 'inline-block',
                   padding: '8px 14px',
@@ -112,7 +117,7 @@ export function ForgotPasswordForm() {
 
           <div style={{ marginTop: '16px' }}>
             <Link
-              href="/auth/login"
+              href="/auth?view=login"
               style={{
                 display: 'block',
                 textAlign: 'center',
@@ -135,12 +140,12 @@ export function ForgotPasswordForm() {
     <AuthCard
       title="Reset Password"
       subtitle="Enter your email to receive a password reset link."
-      backHref="/auth/login"
+      backHref="/auth?view=login"
       backLabel="Sign In"
       footer={
         <div style={{ textAlign: 'center' }}>
           <Link
-            href="/auth/login"
+            href="/auth?view=login"
             style={{
               fontFamily: 'var(--typography-body-medium-fontfamily)',
               fontSize: 'var(--typography-body-medium-fontsize)',

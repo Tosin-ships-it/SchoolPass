@@ -11,11 +11,20 @@ export async function resolve(specifier, context, nextResolve) {
       url: 'data:text/javascript,' + encodeURIComponent(\`
         const cookieJar = new Map();
         export function setTestCookie(k, v) { if (v === null || v === undefined) cookieJar.delete(k); else cookieJar.set(k, v); }
+        export function getTestCookieEntry(k) { return cookieJar.get(k); }
         export function clearTestCookies() { cookieJar.clear(); }
         export async function cookies() {
           return {
-            get: (k) => cookieJar.has(k) ? { name: k, value: cookieJar.get(k) } : undefined,
-            set: (k, v) => cookieJar.set(k, v),
+            get: (k) => {
+              if (!cookieJar.has(k)) return undefined;
+              const val = cookieJar.get(k);
+              return typeof val === 'object' && val !== null && 'value' in val
+                ? { name: k, value: val.value }
+                : { name: k, value: val };
+            },
+            set: (k, v, options) => {
+              cookieJar.set(k, { value: v, options });
+            },
             delete: (k) => cookieJar.delete(k),
           };
         }

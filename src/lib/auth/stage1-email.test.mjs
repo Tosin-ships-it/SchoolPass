@@ -82,9 +82,12 @@ describe('SchoolPass Stage 1: Email Verification and Password Reset Delivery', (
     const html = buildWelcomeEmailHtml('Fatima Musa');
     const text = buildWelcomeEmailText('Fatima Musa');
 
-    assert.ok(html.includes("Welcome to SchoolPass! We're glad to have you here."), 'Welcome HTML includes existing body text');
+    assert.ok(html.includes("We're glad to have you here."), 'Welcome HTML includes existing body text');
+    assert.ok(!html.includes("Welcome to SchoolPass! We're glad to have you here."), 'Welcome HTML does not repeat headline in body');
     assert.ok(html.includes('Welcome to SchoolPass!'), 'Welcome HTML includes headline');
     assert.ok(text.includes('Welcome to SchoolPass!'), 'Welcome text includes headline');
+    assert.ok(text.includes("We're glad to have you here."), 'Welcome text includes body text');
+    assert.ok(!text.includes("Welcome to SchoolPass! We're glad to have you here."), 'Welcome text does not repeat headline in body');
   });
 
   it('activates email mock safeguard and returns test_mock_email_id without network calls', async () => {

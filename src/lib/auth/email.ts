@@ -102,7 +102,7 @@ interface SendMailOptions {
   text: string;
   actorType?: 'parent' | 'staff' | 'admin';
   userId?: string;
-  eventPrefix: 'welcome_email' | 'verification_email' | 'password_reset_email';
+  eventPrefix: 'welcome_email' | 'verification_email' | 'password_reset_email' | 'checkin_code_email';
   tokenToSanitize?: string;
 }
 
@@ -398,7 +398,7 @@ export function buildWelcomeEmailHtml(name?: string): string {
               </h1>
 
               <p class="email-paragraph" style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #334155;">
-                Welcome to SchoolPass! We're glad to have you here.
+                We're glad to have you here.
               </p>
 
               <p class="email-paragraph" style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.6; color: #334155;">
@@ -447,7 +447,7 @@ export function buildWelcomeEmailHtml(name?: string): string {
 export function buildWelcomeEmailText(name?: string): string {
   return `Welcome to SchoolPass!
 
-Welcome to SchoolPass! We're glad to have you here.
+We're glad to have you here.
 
 SchoolPass brings your school's essential information and services together in one place, making it easier to stay informed and connected.
 
@@ -896,3 +896,172 @@ export function triggerPasswordResetEmail(params: SendPasswordResetEmailParams):
     // Failure handled inside sendPasswordResetEmail
   });
 }
+
+export interface SendCheckinCodeEmailParams {
+  to: string;
+  name?: string;
+  studentName: string;
+  studentNumber: string;
+  checkinCode: string;
+  dateStr: string;
+  timeStr: string;
+  expiresAtStr: string;
+  userId?: string;
+  qrSvg?: string;
+}
+
+export function buildCheckinCodeEmailHtml(params: {
+  name?: string;
+  studentName: string;
+  studentNumber: string;
+  checkinCode: string;
+  dateStr: string;
+  timeStr: string;
+  expiresAtStr: string;
+  qrSvg?: string;
+}): string {
+  const greeting = params.name ? `Hello ${params.name},` : 'Hello,';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Your SchoolPass Check-in Code</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 580px; margin: 24px auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; }
+    .header { background-color: #0f172a; padding: 24px; text-align: center; }
+    .header h1 { color: #ffffff; font-size: 20px; margin: 0; }
+    .content { padding: 32px 24px; }
+    .code-box { background-color: #f1f5f9; border: 2px dashed #0284c7; border-radius: 8px; text-align: center; padding: 20px; margin: 24px 0 16px; }
+    .code { font-family: monospace; font-size: 32px; font-weight: 800; color: #0284c7; letter-spacing: 6px; }
+    .expiry { color: #e65100; font-size: 13px; font-weight: 700; margin-top: 8px; }
+    .qr-box { text-align: center; margin: 16px 0 24px; padding: 16px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .meta-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+    .meta-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+    .meta-label { color: #64748b; font-weight: 600; width: 40%; }
+    .meta-val { color: #0f172a; font-weight: 600; }
+    .footer { background-color: #f8fafc; padding: 16px 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>SchoolPass Arrival Check-in</h1>
+    </div>
+    <div class="content">
+      <p>${greeting}</p>
+      <p>A gate check-in code was just generated for <strong>${params.studentName}</strong> (ID: <code>${params.studentNumber}</code>).</p>
+
+      <!-- Primary: 6-Digit Numeric Code (Highest Priority) -->
+      <div class="code-box">
+        <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: #64748b; margin-bottom: 6px;">Your 15-Minute Check-in Code</div>
+        <div class="code">${params.checkinCode}</div>
+        <div class="expiry">Valid for 15 minutes only (Expires at ${params.expiresAtStr})</div>
+      </div>
+
+      <!-- Secondary / QR Option -->
+      ${
+        params.qrSvg
+          ? `<div class="qr-box">
+        <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: #64748b; margin-bottom: 10px;">Or Scan Gate QR Code</div>
+        <div style="display: inline-block; background-color: #ffffff; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0;">
+          ${params.qrSvg}
+        </div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 8px;">Scan at the gate optical reader or enter the 6-digit code above</div>
+      </div>`
+          : ''
+      }
+
+      <table class="meta-table">
+        <tr>
+          <td class="meta-label">Date Generated:</td>
+          <td class="meta-val">${params.dateStr}</td>
+        </tr>
+        <tr>
+          <td class="meta-label">Time Generated:</td>
+          <td class="meta-val">${params.timeStr}</td>
+        </tr>
+        <tr>
+          <td class="meta-label">Expires At:</td>
+          <td class="meta-val">${params.expiresAtStr}</td>
+        </tr>
+        <tr>
+          <td class="meta-label">Student:</td>
+          <td class="meta-val">${params.studentName} (${params.studentNumber})</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 24px; font-size: 13px; line-height: 1.5; color: #475569;">
+        Please present or enter this 6-digit code at the school gate check-in terminal upon arrival. Once confirmed, your child's arrival and attendance will be officially recorded.
+      </p>
+
+      <p style="margin-top: 16px; font-size: 13px; color: #64748b;">
+        Warm regards,<br>
+        <strong>The SchoolPass Team</strong>
+      </p>
+    </div>
+    <div class="footer">
+      This is an automated notification from SchoolPass. If you did not generate this check-in code, please contact the school front desk.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+export function buildCheckinCodeEmailText(params: {
+  name?: string;
+  studentName: string;
+  studentNumber: string;
+  checkinCode: string;
+  dateStr: string;
+  timeStr: string;
+  expiresAtStr: string;
+}): string {
+  const greeting = params.name ? `Hello ${params.name},` : 'Hello,';
+
+  return `SchoolPass Arrival Check-in
+
+${greeting}
+
+A gate check-in code was just generated for ${params.studentName} (ID: ${params.studentNumber}).
+
+YOUR 15-MINUTE CHECK-IN CODE:
+----------------------------------
+${params.checkinCode}
+----------------------------------
+
+Date Generated: ${params.dateStr}
+Time Generated: ${params.timeStr}
+Expires At:     ${params.expiresAtStr} (Valid for 15 minutes only)
+
+Student: ${params.studentName} (${params.studentNumber})
+
+Please enter or present this code at the school gate check-in terminal upon arrival. Once confirmed, your child's arrival and attendance will be officially recorded.
+
+Warm regards,
+The SchoolPass Team
+
+---
+This is an automated notification from SchoolPass.`;
+}
+
+export async function sendCheckinCodeEmail(
+  params: SendCheckinCodeEmailParams
+): Promise<SendEmailResult> {
+  const normalizedTo = params.to.trim().toLowerCase();
+  const htmlContent = buildCheckinCodeEmailHtml(params);
+  const textContent = buildCheckinCodeEmailText(params);
+
+  return dispatchEmail({
+    to: normalizedTo,
+    subject: `Your SchoolPass Check-in Code: ${params.checkinCode}`,
+    html: htmlContent,
+    text: textContent,
+    actorType: 'parent',
+    userId: params.userId,
+    eventPrefix: 'checkin_code_email',
+    tokenToSanitize: params.checkinCode,
+  });
+}
+

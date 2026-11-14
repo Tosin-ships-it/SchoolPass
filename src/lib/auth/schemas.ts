@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validatePersonFullName } from './validation';
 
 /**
  * Reusable primitive validation schemas
@@ -37,12 +38,31 @@ export const loginPasswordSchema = z
 
 export const nameSchema = z
   .string({
+    message: 'Please enter your full name.',
     required_error: 'Please enter your full name.',
     invalid_type_error: 'Name must be a valid text string.',
   })
   .trim()
-  .min(2, 'Please enter your full name.')
-  .max(100, 'Name must not exceed 100 characters.');
+  .min(1, 'Please enter your full name.')
+  .max(100, 'Name must not exceed 100 characters.')
+  .refine(
+    (val) => {
+      const parts = val.split(/\s+/).filter(Boolean);
+      return parts.length >= 2;
+    },
+    {
+      message: 'Please enter your first and last name.',
+    }
+  )
+  .refine(
+    (val) => {
+      const parts = val.split(/\s+/).filter(Boolean);
+      return parts.every((p) => p.length >= 2);
+    },
+    {
+      message: 'Each name must be at least 2 characters long.',
+    }
+  );
 
 export const studentNumberSchema = z
   .string({
@@ -73,12 +93,47 @@ export const cuidSchema = z
  * Operation-specific schemas for authentication and guardian-linking
  */
 
-export const parentRegisterSchema = z.object({
-  name: nameSchema,
-  email: emailSchema,
-  password: passwordSchema,
-  studentNumber: studentNumberSchema,
-});
+export const parentRegisterSchema = z
+  .object({
+    name: nameSchema,
+    email: emailSchema,
+    password: passwordSchema,
+    studentNumber: studentNumberSchema,
+    acceptedTerms: z
+      .boolean({
+        invalid_type_error: 'Terms acceptance must be a boolean.',
+      })
+      .optional(),
+    terms: z
+      .boolean({
+        invalid_type_error: 'Terms acceptance must be a boolean.',
+      })
+      .optional(),
+    confirmPassword: z
+      .string({
+        invalid_type_error: 'Password confirmation must be a string.',
+      })
+      .optional(),
+  })
+  .refine(
+    (data) => data.acceptedTerms === true || data.terms === true,
+    {
+      message: 'You must accept the Terms of Service and Privacy Policy.',
+      path: ['acceptedTerms'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.confirmPassword !== undefined && data.confirmPassword !== null) {
+        return data.confirmPassword === data.password;
+      }
+      return true;
+    },
+    {
+      message: 'Passwords do not match.',
+      path: ['confirmPassword'],
+    }
+  );
 export type ParentRegisterInput = z.infer<typeof parentRegisterSchema>;
 
 export const retryRegistrationLinkSchema = z.object({
@@ -167,14 +222,26 @@ export type StaffRemoveGuardianLinkActionInput = z.infer<typeof staffRemoveGuard
  */
 
 export const intendingStudentIntakeSchema = z.object({
+  submissionId: z
+    .string({ invalid_type_error: 'Submission identifier must be a valid text string.' })
+    .trim()
+    .max(100, 'Submission identifier must not exceed 100 characters.')
+    .optional(),
   name: z
     .string({
       required_error: 'Student full name is required.',
       invalid_type_error: 'Student name must be a valid text string.',
     })
     .trim()
-    .min(2, 'Student full name must be at least 2 characters.')
-    .max(100, 'Student full name must not exceed 100 characters.'),
+    .superRefine((value, ctx) => {
+      const err = validatePersonFullName(value, 'Student full name');
+      if (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err,
+        });
+      }
+    }),
   intendedClass: z
     .string({
       required_error: 'Intended class is required.',
@@ -182,7 +249,10 @@ export const intendingStudentIntakeSchema = z.object({
     })
     .trim()
     .min(1, 'Intended class is required.')
-    .max(50, 'Intended class must not exceed 50 characters.'),
+    .max(50, 'Intended class must not exceed 50 characters.')
+    .refine((value) => /[\p{L}\p{N}]/u.test(value), {
+      message: 'Intended class must include letters or numbers.',
+    }),
   sessionYear: z
     .string({
       required_error: 'Session year is required.',
@@ -190,17 +260,53 @@ export const intendingStudentIntakeSchema = z.object({
     })
     .trim()
     .min(4, 'Session year is required (e.g. 2026/2027).')
-    .max(20, 'Session year must not exceed 20 characters.'),
+    .max(20, 'Session year must not exceed 20 characters.')
+    .refine(
+      (value) => {
+        const match = value.match(/^(\d{4})\/(\d{4})$/);
+        if (!match) return false;
+
+        const start = Number(match[1]);
+        const end = Number(match[2]);
+        return start >= 2000 && start <= 2100 && end === start + 1;
+      },
+      {
+        message:
+          'Session year must be a consecutive academic year in the format YYYY/YYYY (e.g. 2026/2027).',
+      }
+    ),
   guardianName: z
     .string({ invalid_type_error: 'Guardian name must be a valid text string.' })
     .trim()
-    .max(100, 'Guardian name must not exceed 100 characters.')
+    .superRefine((value, ctx) => {
+      if (value && value.length > 0) {
+        const err = validatePersonFullName(value, 'Guardian name');
+        if (err) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: err,
+          });
+        }
+      }
+    })
     .optional()
     .nullable(),
   guardianPhone: z
     .string({ invalid_type_error: 'Guardian phone must be a valid text string.' })
     .trim()
     .max(30, 'Guardian phone must not exceed 30 characters.')
+    .refine(
+      (value) => {
+        if (value.length === 0) return true;
+        if (!/^\+?[\d\s()-]+$/.test(value)) return false;
+
+        const digits = value.replace(/\D/g, '');
+        return digits.length >= 7 && digits.length <= 15;
+      },
+      {
+        message: 'Please enter a valid guardian phone number.',
+      }
+    )
     .optional()
     .nullable(),
   guardianEmail: z

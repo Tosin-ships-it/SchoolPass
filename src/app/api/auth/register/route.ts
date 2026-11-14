@@ -84,10 +84,14 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: true,
-      message: 'Registration successful. Please verify your email address.',
+      message: result.isSoftGated
+        ? 'Registration successful. Welcome to SchoolPass!'
+        : 'Registration successful. Please verify your email address.',
       ...(isDevStubsEnabled() && { verificationToken: result.verificationToken }),
       email,
       studentLink: result.studentLink,
+      isSoftGated: Boolean(result.isSoftGated),
+      redirectTo: result.isSoftGated ? '/ask' : undefined,
     });
   } catch {
     return Response.json(

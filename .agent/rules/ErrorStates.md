@@ -35,3 +35,13 @@ Reason: error text is often logged, cached, and shared. It is a leak path.
 Every failure returns a message the parent can act on.
 The app never hangs, never blanks, and never shows a spinner forever.
 Reason: a silent failure makes the parent call the office, which is what the product is built to reduce.
+
+## Rule 7. Ask the School approved copy
+The 8 preset approved questions and answers for Ask the School, the expansion toggle strings ("more questions", "fewer questions"), the typed question box labels, and the standard records refusal copy are defined in `src/lib/errors/strings.ts`.
+By default, only the first 4 suggested questions are displayed.
+The toggle link displays "more questions" when collapsed and "fewer questions" when expanded.
+When collapsing, any open answer in the hidden subset (questions 5 to 8) is closed immediately.
+Under the suggested questions, parents can type their own question into a box with an "Ask" button. The button remains disabled until text is entered.
+Until the answer system is built, submitting a typed question shows the question with the school's standard records refusal message and makes no network call.
+Only one answer may be open at a time across all tapped and typed questions. Opening any question closes any currently open answer.
+Reason: keeping all approved copy and behavioral constraints in one module prevents copy drift and ensures strict auditability and privacy enforcement.

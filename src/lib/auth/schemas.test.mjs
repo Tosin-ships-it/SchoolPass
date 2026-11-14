@@ -137,6 +137,7 @@ describe('SchoolPass Stage 2: Operation Schemas', () => {
       email: '  Chinedu@Example.com  ',
       password: 'StrongPassword2026!',
       studentNumber: '  sp-2026-0001  ',
+      acceptedTerms: true,
     };
 
     const parsed = parentRegisterSchema.parse(raw);
@@ -151,6 +152,7 @@ describe('SchoolPass Stage 2: Operation Schemas', () => {
       email: 'chinedu@example.com',
       password: 'StrongPassword2026!',
       studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
     });
     assert.equal(missingName.success, false);
 
@@ -159,9 +161,85 @@ describe('SchoolPass Stage 2: Operation Schemas', () => {
       email: 'chinedu@example.com',
       password: 'short',
       studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
     });
     assert.equal(shortPassword.success, false);
     assert.equal(shortPassword.error.issues[0].message, 'Password must be at least 8 characters long.');
+  });
+
+  it('parentRegisterSchema enforces full name requirement (min 2 words, min 2 chars per word)', () => {
+    const singleWord = parentRegisterSchema.safeParse({
+      name: 'BypassUser',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
+    });
+    assert.equal(singleWord.success, false);
+    assert.equal(singleWord.error.issues[0].message, 'Please enter your first and last name.');
+
+    const shortPart = parentRegisterSchema.safeParse({
+      name: 'A Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
+    });
+    assert.equal(shortPart.success, false);
+    assert.equal(shortPart.error.issues[0].message, 'Each name must be at least 2 characters long.');
+  });
+
+  it('parentRegisterSchema enforces mandatory Terms acceptance', () => {
+    const missingTerms = parentRegisterSchema.safeParse({
+      name: 'Chinedu Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+    });
+    assert.equal(missingTerms.success, false);
+    assert.equal(missingTerms.error.issues[0].message, 'You must accept the Terms of Service and Privacy Policy.');
+
+    const falseTerms = parentRegisterSchema.safeParse({
+      name: 'Chinedu Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      acceptedTerms: false,
+    });
+    assert.equal(falseTerms.success, false);
+    assert.equal(falseTerms.error.issues[0].message, 'You must accept the Terms of Service and Privacy Policy.');
+
+    const aliasTerms = parentRegisterSchema.safeParse({
+      name: 'Chinedu Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      terms: true,
+    });
+    assert.equal(aliasTerms.success, true);
+  });
+
+  it('parentRegisterSchema validates optional password confirmation', () => {
+    const mismatched = parentRegisterSchema.safeParse({
+      name: 'Chinedu Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      confirmPassword: 'MismatchPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
+    });
+    assert.equal(mismatched.success, false);
+    assert.equal(mismatched.error.issues[0].message, 'Passwords do not match.');
+
+    const matching = parentRegisterSchema.safeParse({
+      name: 'Chinedu Okafor',
+      email: 'chinedu@example.com',
+      password: 'StrongPassword2026!',
+      confirmPassword: 'StrongPassword2026!',
+      studentNumber: 'SP-2026-0001',
+      acceptedTerms: true,
+    });
+    assert.equal(matching.success, true);
   });
 
   it('retryRegistrationLinkSchema validates retry action parameters', () => {

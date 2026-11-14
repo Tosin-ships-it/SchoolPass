@@ -131,11 +131,12 @@ export function FormField({
               : isFocused
               ? '1px solid var(--color-roles-primary)'
               : '1px solid var(--color-roles-outline-color)',
-            outline: activeError
-              ? 'none'
-              : isFocused
-              ? '1px solid var(--color-roles-primary)'
+            outline: isFocused
+              ? activeError
+                ? '2px solid var(--color-roles-error)'
+                : '2px solid var(--color-roles-primary)'
               : 'none',
+            outlineOffset: '2px',
             borderRadius: '8px',
             boxSizing: 'border-box',
             transition: 'border-color 0.15s ease, outline-color 0.15s ease, box-shadow 0.15s ease',
@@ -263,19 +264,24 @@ export function FormField({
 
 interface PrimaryButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
+  ariaDisabled?: boolean;
   children: React.ReactNode;
 }
 
 export function PrimaryButton({
   loading,
   disabled,
+  ariaDisabled,
   children,
   style,
   ...props
 }: PrimaryButtonProps) {
+  const isInactive = Boolean(disabled || ariaDisabled || loading);
   return (
     <button
-      disabled={disabled || loading}
+      {...(disabled ? { disabled: true } : {})}
+      aria-disabled={isInactive ? 'true' : undefined}
+      tabIndex={0}
       aria-busy={loading ? 'true' : undefined}
       style={{
         display: 'flex',

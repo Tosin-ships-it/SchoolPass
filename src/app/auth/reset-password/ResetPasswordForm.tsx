@@ -83,7 +83,7 @@ function ResetPasswordContent() {
       <AuthCard
         title="Password Reset Complete"
         subtitle="Your password has been successfully updated."
-        backHref="/auth/login"
+        backHref="/auth?view=login"
         backLabel="Sign In"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -93,7 +93,7 @@ function ResetPasswordContent() {
           />
 
           <Link
-            href="/auth/login"
+            href="/auth?view=login"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -120,7 +120,7 @@ function ResetPasswordContent() {
     <AuthCard
       title="Create New Password"
       subtitle="Enter a new password for your SchoolPass account."
-      backHref="/auth/login"
+      backHref="/auth?view=login"
       backLabel="Sign In"
     >
       <form onSubmit={handleSubmit} noValidate>
