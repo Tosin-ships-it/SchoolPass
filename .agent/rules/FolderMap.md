@@ -50,6 +50,7 @@ src/
 │   │   └── students/
 │   ├── api/
 │   │   ├── ask/
+│   │   ├── chat/
 │   │   ├── records/
 │   │   ├── arrival/
 │   │   ├── payments/
@@ -90,6 +91,7 @@ src/
 | `src/app/(staff)/guardian-links/` | Parent-to-student links. |
 | `src/app/(staff)/students/` | Intending student intake and registration UI. |
 | `src/app/api/ask/` | AI answer route. Thin re-export. |
+| `src/app/api/chat/` | AI chat route. Checks message intent, privacy boundary, and grounding before Gemini. |
 | `src/app/api/records/` | Private record reads route. |
 | `src/app/api/arrival/` | Arrival confirm and status route. Thin re-export. |
 | `src/app/api/payments/` | Initiate, webhook, status route. Thin re-export. |

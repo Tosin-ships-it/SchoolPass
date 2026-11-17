@@ -37,9 +37,12 @@ Use the wording in `RULES_ERROR_STATES.md`.
 Offer the Ask the Office fallback with it.
 Reason: the fallback is the parent's path to a human.
 
-## Rule 6. Single turn
-Answer one question at a time. No memory of earlier questions.
-Reason: multi-turn is a Non-Goal. Memory would let a private detail from one question leak into the next.
+## Rule 6. Multi-turn conversation support
+Ask the School supports multi-turn conversations strictly scoped to the authenticated parent account.
+Relevant conversation history from the parent's active thread is supplied to Gemini to support contextual follow-up questions.
+Each parent's conversations are private and inaccessible to other parents.
+All server-side authentication, private-record refusal checks, and grounding constraints apply to every message in the thread.
+Reason: approved user requirement for multi-turn parent dialogue while maintaining strict privacy boundaries.
 
 ## Rule 7. Answer length
 An answer is at most 120 words.

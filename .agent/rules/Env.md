@@ -37,7 +37,9 @@ Reason: a stale name misleads the next reader.
 The user supplied the environment variable names in `.env.example`.
 
 ## Rule 7. Variable Names and Purposes
-- `DATABASE_URL`: Connection string for PostgreSQL database hosted on Neon.
+- `DATABASE_URL`: Connection string for PostgreSQL database hosted on Neon (pooled).
+- `DATABASE_URL_UNPOOLED`: Direct, unpooled connection string for PostgreSQL database hosted on Neon (used by Prisma migrations and direct connections).
+- `NEON_BRANCH`: Neon branch identifier (e.g. development, main).
 - `GEMINI_API_KEY`: API key for Google Gemini (embeddings and Flash model for answers).
 - `FLUTTERWAVE_PUBLIC_KEY`: Flutterwave public API key for payment checkout.
 - `FLUTTERWAVE_SECRET_KEY`: Flutterwave secret key for server-side payment verification and refunds.

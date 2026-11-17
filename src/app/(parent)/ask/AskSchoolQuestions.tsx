@@ -9,6 +9,11 @@ export function AskSchoolQuestions() {
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [typedInput, setTypedInput] = useState('');
   const [submittedTypedQuestion, setSubmittedTypedQuestion] = useState<string | null>(null);
+  const [typedAnswer, setTypedAnswer] = useState<string | null>(null);
+  const [isPrivateRefusal, setIsPrivateRefusal] = useState(false);
+  const [isFallback, setIsFallback] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
 
   const allQuestions = ASK_THE_SCHOOL_COPY.QUESTIONS;
   const initialQuestions = allQuestions.slice(0, 4);
@@ -37,19 +42,50 @@ export function AskSchoolQuestions() {
     });
   };
 
-  // Submit typed question: purely client-side with no network call
-  const handleAskSubmit = (e: React.FormEvent) => {
+  // Submit typed question: sends message to /api/chat route
+  const handleAskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = typedInput.trim();
-    if (!trimmed) return;
+    if (!trimmed || isSubmitting) return;
 
     setSubmittedTypedQuestion(trimmed);
-    // Open the typed question answer and close any open tapped question
     setActiveQuestionId('typed');
     setTypedInput('');
+    setIsSubmitting(true);
+    setReportSent(false);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setTypedAnswer(
+          data.error ||
+            "I couldn't find an approved answer to this. You can ask the school office."
+        );
+        setIsFallback(true);
+        setIsPrivateRefusal(false);
+      } else {
+        setTypedAnswer(data.answer);
+        setIsPrivateRefusal(Boolean(data.isPrivateRecordsRefusal));
+        setIsFallback(Boolean(data.isFallback));
+      }
+    } catch {
+      setTypedAnswer(
+        "I couldn't find an approved answer to this. You can ask the school office."
+      );
+      setIsFallback(true);
+      setIsPrivateRefusal(false);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const isAskDisabled = !typedInput.trim();
+  const isAskDisabled = !typedInput.trim() || isSubmitting;
 
   return (
     <div
@@ -271,7 +307,7 @@ export function AskSchoolQuestions() {
             <div
               id="typed-question-answer"
               role="region"
-              aria-label="Refusal response for typed question"
+              aria-label="Response for typed question"
               style={{
                 padding: '12px 14px 16px',
                 fontSize: '13px',
@@ -284,48 +320,126 @@ export function AskSchoolQuestions() {
                 gap: '12px',
               }}
             >
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '15px', color: '#e65100', lineHeight: 1.2 }}>ℹ</span>
-                <p style={{ margin: 0 }}>
-                  {ASK_THE_SCHOOL_COPY.STANDARD_RECORDS_REFUSAL}
-                </p>
-              </div>
-
-              {/* Navigation Action Links */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  flexWrap: 'wrap',
-                  paddingTop: '8px',
-                  borderTop: '1px dashed var(--color-roles-outline-variant, #e2e8f0)',
-                }}
-              >
-                <Link
-                  href="/records"
+              {isSubmitting ? (
+                <div
                   style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
                     color: 'var(--color-roles-primary, #0284c7)',
-                    textDecoration: 'none',
+                    padding: '8px 0',
                   }}
                 >
-                  {ASK_THE_SCHOOL_COPY.RECORDS_LINK_LABEL} &rarr;
-                </Link>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      border: '2px solid currentColor',
+                      borderTopColor: 'transparent',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                  <span>Checking official school information...</span>
+                </div>
+              ) : isPrivateRefusal ? (
+                <>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: '15px', color: '#e65100', lineHeight: 1.2 }}>ℹ</span>
+                    <p style={{ margin: 0 }}>
+                      {typedAnswer || ASK_THE_SCHOOL_COPY.STANDARD_RECORDS_REFUSAL}
+                    </p>
+                  </div>
 
-                <Link
-                  href="/office"
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: 'var(--color-roles-secondary, #475569)',
-                    textDecoration: 'none',
-                  }}
-                >
-                  {ASK_THE_SCHOOL_COPY.OFFICE_LINK_LABEL} &rarr;
-                </Link>
-              </div>
+                  {/* Navigation Action Links */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      flexWrap: 'wrap',
+                      paddingTop: '8px',
+                      borderTop: '1px dashed var(--color-roles-outline-variant, #e2e8f0)',
+                    }}
+                  >
+                    <Link
+                      href="/records"
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--color-roles-primary, #0284c7)',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {ASK_THE_SCHOOL_COPY.RECORDS_LINK_LABEL} &rarr;
+                    </Link>
+
+                    <Link
+                      href="/office"
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: 'var(--color-roles-secondary, #475569)',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {ASK_THE_SCHOOL_COPY.OFFICE_LINK_LABEL} &rarr;
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                    <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {typedAnswer || ASK_THE_SCHOOL_COPY.STANDARD_RECORDS_REFUSAL}
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                      paddingTop: '8px',
+                      borderTop: '1px dashed var(--color-roles-outline-variant, #e2e8f0)',
+                    }}
+                  >
+                    {isFallback && (
+                      <Link
+                        href="/office"
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: 'var(--color-roles-primary, #0284c7)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {ASK_THE_SCHOOL_COPY.OFFICE_LINK_LABEL} &rarr;
+                      </Link>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={reportSent}
+                      onClick={() => setReportSent(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        fontSize: '11px',
+                        color: reportSent ? '#16a34a' : '#64748b',
+                        cursor: reportSent ? 'default' : 'pointer',
+                        textDecoration: reportSent ? 'none' : 'underline',
+                      }}
+                    >
+                      {reportSent ? '✓ Report submitted for staff review' : 'Report an incorrect answer'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -207,4 +207,36 @@ Reason: if this file drifts from the schema, the agent will invent.
 - **Fields**:
   - `year`: `Int @id` (Intake calendar year, e.g. 2026)
   - `lastValue`: `Int @default(0)`
-- **Table mapping**: `@@map("student_number_sequences")`
+- **Table mapping**: `@@map("student_number_sequences")`
+
+### Stage 3 Approved Schema Definitions: Multi-Turn Parent AI Chat Conversations
+
+### Model: `Parent` (Updated)
+- **Additional Relation**:
+  - `conversations ChatConversation[]`
+
+### Model: `ChatConversation`
+- **Purpose**: Manage multi-turn conversation threads strictly isolated and linked to an authenticated parent account.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `parentId`: `String`
+  - `title`: `String?` (Thread title derived from the initial question or topic)
+  - `createdAt`: `DateTime @default(now())`
+  - `updatedAt`: `DateTime @updatedAt`
+  - Relations: `parent Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)`, `messages ChatMessage[]`
+- **Constraints**: `@@index([parentId])`, `@@map("chat_conversations")`
+
+### Model: `ChatMessage`
+- **Purpose**: Individual messages (user queries and assistant responses) within a parent conversation thread.
+- **Fields**:
+  - `id`: `String @id @default(cuid())`
+  - `conversationId`: `String`
+  - `role`: `String` (`user` or `assistant`)
+  - `content`: `String`
+  - `modelUsed`: `String?` (e.g. `gemini-2.0-flash`, or null for refusals/presets)
+  - `isPrivateRefusal`: `Boolean @default(false)`
+  - `isFallback`: `Boolean @default(false)`
+  - `wordCount`: `Int?`
+  - `createdAt`: `DateTime @default(now())`
+  - Relations: `conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)`
+- **Constraints**: `@@index([conversationId])`, `@@index([createdAt])`, `@@map("chat_messages")`

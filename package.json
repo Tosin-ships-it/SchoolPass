@@ -12,6 +12,7 @@
     "tokens": "node convert-tokens.js"
   },
   "dependencies": {
+    "@google/genai": "^3.3.0",
     "@node-rs/argon2": "^2.2.2",
     "@prisma/client": "^6.4.1",
     "next": "^15.2.1",

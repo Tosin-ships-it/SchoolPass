@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 import Link from 'next/link';
 import { getSession } from '@/lib/auth';
+import { LandingHelpModal } from './LandingHelpModal';
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://schoolpass.ng';
 
@@ -398,6 +399,68 @@ export default async function HomePage({
         .sp-text-link:hover {
           color: var(--color-roles-primary) !important;
           opacity: 0.9;
+        }
+
+        /* FAQ Accordion Styling */
+        .sp-faq-item {
+          background-color: var(--color-roles-surface);
+          border: 1px solid var(--color-roles-outline-color);
+          border-radius: 0.5rem;
+          box-shadow: var(--effect-soft-shadow);
+          transition: border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .sp-faq-item:hover {
+          border-color: var(--color-roles-primary-fixed-dim);
+        }
+        .sp-faq-summary {
+          cursor: pointer;
+          user-select: none;
+          padding: 18px 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          list-style: none;
+          font-family: var(--typography-title-medium-fontfamily);
+          font-size: var(--typography-title-medium-fontsize);
+          font-weight: 600;
+          color: var(--color-roles-on-surface);
+          transition: color 0.15s ease;
+        }
+        .sp-faq-summary::-webkit-details-marker,
+        .sp-faq-summary::marker {
+          display: none;
+          content: "";
+        }
+        .sp-faq-summary:focus-visible {
+          outline: 2px solid var(--color-roles-primary);
+          outline-offset: -2px;
+          border-radius: 0.375rem;
+        }
+        .sp-faq-summary:hover {
+          color: var(--color-roles-primary);
+        }
+        .sp-faq-icon {
+          flex-shrink: 0;
+          width: 20px;
+          height: 20px;
+          color: var(--color-roles-on-surface-variant);
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s ease;
+        }
+        .sp-faq-summary:hover .sp-faq-icon {
+          color: var(--color-roles-primary);
+        }
+        .sp-faq-item[open] .sp-faq-icon {
+          transform: rotate(180deg);
+          color: var(--color-roles-primary);
+        }
+        .sp-faq-content {
+          padding: 0 20px 20px 20px;
+          font-family: var(--typography-body-medium-fontfamily);
+          font-size: var(--typography-body-medium-fontsize);
+          line-height: var(--typography-body-medium-lineheight);
+          color: var(--color-roles-on-surface-variant);
+          margin: 0;
         }
 
         /* Responsive Navigation (Desktop vs Mobile Full-Screen Slider) */
@@ -930,14 +993,44 @@ export default async function HomePage({
             <section
               aria-labelledby="hero-heading"
               style={{
-                width: '100%',
-                padding: '64px 0 56px 0',
+                position: 'relative',
+                width: '100vw',
+                marginLeft: 'calc(50% - 50vw)',
+                padding: '72px 0 64px 0',
                 boxSizing: 'border-box',
+                overflow: 'hidden',
               }}
             >
+              {/* Background image layer covering the entire space with reduced opacity */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundImage: "url('/hero-bg.jpg')",
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                  opacity: 0.35,
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }}
+              />
+
               <div
                 style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  maxWidth: '1040px',
+                  margin: '0 auto',
+                  padding: '0 20px',
                   width: '100%',
+                  boxSizing: 'border-box',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -1149,7 +1242,7 @@ export default async function HomePage({
                       margin: 0,
                     }}
                   >
-                    Instant answers to recurring school questions regarding calendars, uniforms, closing times, and policies, drawn strictly from approved school records.
+                    Quick answers to common school questions regarding calendars, uniforms, closing times, and policies, drawn strictly from approved school records.
                   </p>
                 </article>
 
@@ -1373,7 +1466,7 @@ export default async function HomePage({
                       margin: 0,
                     }}
                   >
-                    Private Student Records
+                    Privacy by Design
                   </h3>
                   <p
                     style={{
@@ -1428,7 +1521,7 @@ export default async function HomePage({
                       marginTop: '6px',
                     }}
                   >
-                    Simple, secure registration verified by the school administration.
+                    Simple registration with secure email verification and school-approved access to your child&apos;s records.
                   </p>
                 </div>
 
@@ -1470,7 +1563,7 @@ export default async function HomePage({
                         margin: 0,
                       }}
                     >
-                      Create your parent account using your name, email, and password.
+                      Create your parent account using your name, email address, and password. Provide your child&apos;s official Student Number to identify the correct student.
                     </p>
                   </div>
 
@@ -1505,7 +1598,7 @@ export default async function HomePage({
                         margin: 0,
                       }}
                     >
-                      Confirm your email address through the single-use verification link sent to your inbox.
+                      Confirm your email address using the secure, single-use verification link sent to your inbox.
                     </p>
                   </div>
 
@@ -1529,7 +1622,7 @@ export default async function HomePage({
                         color: 'var(--color-roles-primary)',
                       }}
                     >
-                      3. School Staff Link
+                      3. School Approval
                     </div>
                     <p
                       style={{
@@ -1540,7 +1633,7 @@ export default async function HomePage({
                         margin: 0,
                       }}
                     >
-                      School staff look up your verified email and link your account to your child&apos;s records.
+                      The school verifies your request and confirms your relationship with the student before granting access to your child&apos;s records.
                     </p>
                   </div>
                 </div>
@@ -1566,6 +1659,145 @@ export default async function HomePage({
                   >
                     Get Started &rarr;
                   </Link>
+                </div>
+              </div>
+            </section>
+
+            {/* FREQUENTLY ASKED QUESTIONS SECTION */}
+            <section
+              aria-labelledby="faq-heading"
+              style={{
+                width: '100%',
+                padding: '56px 0',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '32px',
+                  width: '100%',
+                  maxWidth: '760px',
+                  margin: '0 auto',
+                }}
+              >
+                <div style={{ textAlign: 'center' }}>
+                  <h2
+                    id="faq-heading"
+                    style={{
+                      fontFamily: 'var(--typography-headline-small-fontfamily)',
+                      fontSize: 'var(--typography-headline-small-fontsize)',
+                      fontWeight: 'var(--typography-headline-small-fontweight)',
+                      color: 'var(--color-roles-on-surface)',
+                      margin: 0,
+                    }}
+                  >
+                    Frequently Asked Questions
+                  </h2>
+                  <p
+                    style={{
+                      fontFamily: 'var(--typography-body-medium-fontfamily)',
+                      fontSize: 'var(--typography-body-medium-fontsize)',
+                      color: 'var(--color-roles-on-surface-variant)',
+                      marginTop: '6px',
+                    }}
+                  >
+                    Find answers to common questions about registering and using SchoolPass.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    width: '100%',
+                  }}
+                >
+                  <details className="sp-faq-item">
+                    <summary className="sp-faq-summary">
+                      <span>Who can register on SchoolPass?</span>
+                      <svg
+                        className="sp-faq-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </summary>
+                    <p className="sp-faq-content">
+                      SchoolPass is designed for parents and legal guardians of students enrolled at the school. Any parent or guardian can create an account using their name and email address to request access to their child&apos;s records.
+                    </p>
+                  </details>
+
+                  <details className="sp-faq-item">
+                    <summary className="sp-faq-summary">
+                      <span>What is a Student Number?</span>
+                      <svg
+                        className="sp-faq-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </summary>
+                    <p className="sp-faq-content">
+                      A Student Number is your child&apos;s official school identification number (for example, SP-2026-0001). It is used to identify the correct student and link your parent account to their verified school records.
+                    </p>
+                  </details>
+
+                  <details className="sp-faq-item">
+                    <summary className="sp-faq-summary">
+                      <span>How long does school approval take?</span>
+                      <svg
+                        className="sp-faq-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </summary>
+                    <p className="sp-faq-content">
+                      After you submit your registration and verify your email, school staff review the linking request to confirm your relationship with the student before granting access. Approval is handled directly by school staff during regular school hours to protect student data.
+                    </p>
+                  </details>
+
+                  <details className="sp-faq-item">
+                    <summary className="sp-faq-summary">
+                      <span>What happens if I cannot find my Student Number?</span>
+                      <svg
+                        className="sp-faq-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </summary>
+                    <p className="sp-faq-content">
+                      If you cannot locate your child&apos;s Student Number, please contact the school Front Desk. School staff can look up and confirm the official Student Number for verified parents and guardians.
+                    </p>
+                  </details>
                 </div>
               </div>
             </section>
@@ -1660,6 +1892,12 @@ export default async function HomePage({
           </nav>
         </div>
       </footer>
+
+      {/* Floating Help Button & Support Modal */}
+      <LandingHelpModal
+        whatsappNumber={process.env.NEXT_PUBLIC_FRONT_DESK_WHATSAPP || process.env.FRONT_DESK_WHATSAPP}
+        schoolEmail={process.env.NEXT_PUBLIC_SCHOOL_EMAIL || process.env.SCHOOL_EMAIL}
+      />
     </div>
   );
 }
